@@ -323,7 +323,7 @@ impl MiniMaxProvider {
             .build()
             .map_err(|e| ProviderError::Other(e.to_string()))?;
 
-        let response = client
+        let mut request = client
             .get(region.billing_url())
             .query(&[("page", "1"), ("limit", "100"), ("aggregate", "false")])
             .header("Cookie", cookie_header)
@@ -338,20 +338,21 @@ impl MiniMaxProvider {
                 "User-Agent",
                 "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 \
                  (KHTML, like Gecko) Chrome/143.0.0.0 Safari/537.36",
-            )
-            .send()
-            .await?;
+            );
 
-        if response.status() == reqwest::StatusCode::UNAUTHORIZED
-            || response.status() == reqwest::StatusCode::FORBIDDEN
-        {
+        if let Some(group_id) = Self::local_storage_group_id() {
+            request = request.header("X-Group-Id", group_id);
+        }
+
+        let response = request.send().await?;
+
+        let status = response.status();
+        if status == reqwest::StatusCode::UNAUTHORIZED || status == reqwest::StatusCode::FORBIDDEN {
             return Err(ProviderError::AuthRequired);
         }
-        if !response.status().is_success() {
-            return Err(ProviderError::Other(format!(
-                "MiniMax billing returned status {}",
-                response.status()
-            )));
+        if !status.is_success() {
+            let body = response.text().await.unwrap_or_default();
+            return Err(ProviderError::Other(billing_status_error(status, &body)));
         }
 
         let json: serde_json::Value = response
@@ -360,6 +361,14 @@ impl MiniMaxProvider {
             .map_err(|e| ProviderError::Parse(format!("Failed to parse MiniMax billing: {e}")))?;
         let summary = parse_billing_summary(&json)?;
         Ok(result_from_billing_summary(summary, "web-billing"))
+    }
+
+    fn local_storage_group_id() -> Option<String> {
+        MiniMaxLocalStorageImporter::import_session()
+            .ok()
+            .and_then(|session| session.group_id)
+            .map(|group_id| group_id.trim().to_string())
+            .filter(|group_id| !group_id.is_empty())
     }
 
     fn result_with_optional_billing(
@@ -423,6 +432,36 @@ fn origin_from_url(url: &str) -> String {
             Some(format!("{scheme}://{host}"))
         })
         .unwrap_or_else(|| url.to_string())
+}
+
+fn billing_status_error(status: reqwest::StatusCode, body: &str) -> String {
+    let detail = minimax_base_response_message(body)
+        .or_else(|| response_body_snippet(body))
+        .map(|detail| format!(": {detail}"))
+        .unwrap_or_default();
+    format!("MiniMax billing returned status {status}{detail}")
+}
+
+fn minimax_base_response_message(body: &str) -> Option<String> {
+    let json: serde_json::Value = serde_json::from_str(body).ok()?;
+    json.pointer("/base_resp/status_msg")
+        .and_then(|value| value.as_str())
+        .map(str::trim)
+        .filter(|message| !message.is_empty())
+        .map(|message| message.to_string())
+}
+
+fn response_body_snippet(body: &str) -> Option<String> {
+    let collapsed = body.split_whitespace().collect::<Vec<_>>().join(" ");
+    if collapsed.is_empty() {
+        return None;
+    }
+    const LIMIT: usize = 300;
+    let mut snippet: String = collapsed.chars().take(LIMIT).collect();
+    if collapsed.chars().count() > LIMIT {
+        snippet.push('…');
+    }
+    Some(snippet)
 }
 
 fn aggregate_billing(
@@ -946,5 +985,28 @@ mod tests {
         assert_eq!(MiniMaxRegion::from("global"), MiniMaxRegion::Global);
         assert_eq!(MiniMaxRegion::from("unknown"), MiniMaxRegion::Global);
         assert_eq!(MiniMaxRegion::from(""), MiniMaxRegion::Global);
+    }
+
+    #[test]
+    fn billing_status_error_prefers_base_response_message() {
+        let message = billing_status_error(
+            reqwest::StatusCode::INTERNAL_SERVER_ERROR,
+            r#"{"base_resp":{"status_code":1001,"status_msg":"missing group"}}"#,
+        );
+
+        assert_eq!(
+            message,
+            "MiniMax billing returned status 500 Internal Server Error: missing group"
+        );
+    }
+
+    #[test]
+    fn billing_status_error_includes_truncated_body_snippet() {
+        let body = format!("<html>{}</html>", "x".repeat(400));
+        let message = billing_status_error(reqwest::StatusCode::BAD_GATEWAY, &body);
+
+        assert!(message.starts_with("MiniMax billing returned status 502 Bad Gateway: <html>"));
+        assert!(message.ends_with('…'));
+        assert!(message.len() < 380);
     }
 }
