@@ -72,8 +72,9 @@ pub fn import_browser_cookies(
     })?;
 
     if cookies.is_empty() {
+        let diagnostics = CookieExtractor::diagnostic_summary_for_domain(&browser, domain);
         return Err(format!(
-            "No cookies found for {domain} in {}. Make sure you are signed in to that site in the browser.",
+            "No cookies found for {domain} in {}. Make sure you are signed in to that site in the browser. {diagnostics}",
             browser.browser_type.display_name()
         ));
     }
