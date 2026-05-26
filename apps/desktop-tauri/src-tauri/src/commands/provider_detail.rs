@@ -77,7 +77,13 @@ pub(crate) fn build_provider_detail(provider_id: &str) -> Result<ProviderDetail,
         cost: None,
         pace: None,
         last_error: None,
-        dashboard_url: metadata.dashboard_url.map(|s| s.to_string()),
+        dashboard_url: if id == ProviderId::Zai {
+            let region: codexbar::providers::zai::ZaiRegion =
+                settings.api_region(ProviderId::Zai).into();
+            Some(region.dashboard_url().to_string())
+        } else {
+            metadata.dashboard_url.map(|s| s.to_string())
+        },
         status_page_url: metadata.status_page_url.map(|s| s.to_string()),
         // Buy-credits currently mirrors the dashboard URL for providers that
         // support credit top-ups; refine once a dedicated URL lands upstream.

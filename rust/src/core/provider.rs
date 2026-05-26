@@ -448,6 +448,9 @@ pub struct FetchContext {
 
     /// API key for providers that require authentication
     pub api_key: Option<String>,
+
+    /// API region for providers with multiple endpoints (e.g., "global", "china")
+    pub api_region: Option<String>,
 }
 
 impl Default for FetchContext {
@@ -459,6 +462,7 @@ impl Default for FetchContext {
             verbose: false,
             manual_cookie_header: None,
             api_key: None,
+            api_region: None,
         }
     }
 }
@@ -668,6 +672,7 @@ mod tests {
         assert!(!ctx.verbose);
         assert!(ctx.manual_cookie_header.is_none());
         assert!(ctx.api_key.is_none());
+        assert!(ctx.api_region.is_none());
     }
 
     #[test]

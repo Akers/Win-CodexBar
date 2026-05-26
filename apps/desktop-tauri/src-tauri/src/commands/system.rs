@@ -264,6 +264,14 @@ pub fn quit_app(app: tauri::AppHandle) {
 }
 
 fn dashboard_url_for_provider(provider_id: &str) -> Option<String> {
+    // Z.ai uses region-specific dashboard URLs
+    if provider_id == "zai" {
+        let settings = Settings::load();
+        let region: codexbar::providers::zai::ZaiRegion =
+            settings.api_region(ProviderId::Zai).into();
+        return Some(region.dashboard_url().to_string());
+    }
+
     codexbar::settings::get_api_key_providers()
         .into_iter()
         .find(|p| p.id.cli_name() == provider_id)

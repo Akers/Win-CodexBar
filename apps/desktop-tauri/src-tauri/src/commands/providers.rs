@@ -68,10 +68,19 @@ pub(crate) fn build_fetch_context(
         .map(|s| s.to_string())
         .or(active_token_api_key);
 
+    // Inject api_region for providers that support regional endpoints
+    let api_region = match id {
+        ProviderId::Zai | ProviderId::MiniMax | ProviderId::Alibaba => {
+            Some(settings.api_region(id).to_string())
+        }
+        _ => None,
+    };
+
     FetchContext {
         source_mode,
         manual_cookie_header: cookie_header,
         api_key,
+        api_region,
         ..FetchContext::default()
     }
 }
