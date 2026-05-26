@@ -88,14 +88,19 @@ struct ZaiLimit {
     #[serde(rename = "type")]
     limit_type: Option<String>,
     /// Used amount
+    #[serde(default)]
     used: Option<f64>,
     /// Current value (alternative to used)
     #[serde(rename = "currentValue")]
     current_value: Option<f64>,
-    /// Total limit
+    /// Total limit (z.ai Global uses "limit"; BigModel/ChinaMainland uses "usage")
+    #[serde(alias = "usage")]
     limit: Option<f64>,
     /// Remaining amount
     remaining: Option<f64>,
+    /// Pre-computed percentage (0-100, supplied by BigModel/ChinaMainland)
+    #[serde(default)]
+    percentage: Option<f64>,
     /// Time unit enum: 1=days, 3=hours, 5=minutes, 6=weeks
     unit: Option<i32>,
     /// Number of time units in the window
@@ -246,6 +251,11 @@ impl ZaiProvider {
 
         // Compute used percent for a limit entry
         fn compute_percent(l: &ZaiLimit) -> f64 {
+            // BigModel/ChinaMainland returns pre-computed percentage directly
+            if let Some(pct) = l.percentage {
+                return pct.clamp(0.0, 100.0);
+            }
+            // Fall back to raw-value computation (z.ai Global / legacy)
             let limit = l.limit.unwrap_or(0.0);
             if limit <= 0.0 {
                 return if l.used.unwrap_or(0.0) > 0.0 || l.current_value.unwrap_or(0.0) > 0.0 {
