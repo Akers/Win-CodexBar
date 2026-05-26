@@ -20,8 +20,6 @@ use crate::core::{
     ProviderMetadata, RateWindow, SourceMode, UsageSnapshot,
 };
 
-const BILLING_HISTORY_URL: &str = "https://platform.minimaxi.com/account/amount";
-
 #[derive(Debug, Deserialize)]
 struct MiniMaxBillingHistoryPayload {
     #[serde(default)]
@@ -80,8 +78,16 @@ impl MiniMaxRegion {
     /// Browser cookie domain for this region.
     pub fn cookie_domain(self) -> &'static str {
         match self {
-            MiniMaxRegion::Global => "platform.minimaxi.com",
-            MiniMaxRegion::ChinaMainland => "minimax.com",
+            MiniMaxRegion::Global => "platform.minimax.io",
+            MiniMaxRegion::ChinaMainland => "platform.minimaxi.com",
+        }
+    }
+
+    /// Billing history URL for this region.
+    pub fn billing_url(self) -> &'static str {
+        match self {
+            MiniMaxRegion::Global => "https://platform.minimax.io/account/amount",
+            MiniMaxRegion::ChinaMainland => "https://platform.minimaxi.com/account/amount",
         }
     }
 }
@@ -301,6 +307,7 @@ impl MiniMaxProvider {
     async fn fetch_billing_with_cookie(
         &self,
         cookie_header: &str,
+        region: MiniMaxRegion,
     ) -> Result<ProviderFetchResult, ProviderError> {
         let client = reqwest::Client::builder()
             .timeout(std::time::Duration::from_secs(30))
@@ -308,7 +315,7 @@ impl MiniMaxProvider {
             .map_err(|e| ProviderError::Other(e.to_string()))?;
 
         let response = client
-            .get(BILLING_HISTORY_URL)
+            .get(region.billing_url())
             .query(&[("page", "1"), ("limit", "100")])
             .header("Cookie", cookie_header)
             .header("Accept", "application/json, text/plain, */*")
@@ -667,11 +674,12 @@ impl Provider for MiniMaxProvider {
 
     async fn fetch_usage(&self, ctx: &FetchContext) -> Result<ProviderFetchResult, ProviderError> {
         tracing::debug!("Fetching MiniMax usage");
+        let region: MiniMaxRegion = ctx.api_region.as_deref().unwrap_or("global").into();
 
         match ctx.source_mode {
             SourceMode::Auto => {
                 if let Some(cookie_header) = ctx.manual_cookie_header.as_deref()
-                    && let Ok(result) = self.fetch_billing_with_cookie(cookie_header).await
+                    && let Ok(result) = self.fetch_billing_with_cookie(cookie_header, region).await
                 {
                     return Ok(result);
                 }
@@ -683,7 +691,7 @@ impl Provider for MiniMaxProvider {
             }
             SourceMode::Web => {
                 if let Some(cookie_header) = ctx.manual_cookie_header.as_deref() {
-                    return self.fetch_billing_with_cookie(cookie_header).await;
+                    return self.fetch_billing_with_cookie(cookie_header, region).await;
                 }
                 self.fetch_via_web().await
             }
@@ -880,15 +888,15 @@ mod tests {
 
     #[test]
     fn minimax_region_cookie_domain_global() {
-        assert_eq!(
-            MiniMaxRegion::Global.cookie_domain(),
-            "platform.minimaxi.com"
-        );
+        assert_eq!(MiniMaxRegion::Global.cookie_domain(), "platform.minimax.io");
     }
 
     #[test]
     fn minimax_region_cookie_domain_china() {
-        assert_eq!(MiniMaxRegion::ChinaMainland.cookie_domain(), "minimax.com");
+        assert_eq!(
+            MiniMaxRegion::ChinaMainland.cookie_domain(),
+            "platform.minimaxi.com"
+        );
     }
 
     #[test]
