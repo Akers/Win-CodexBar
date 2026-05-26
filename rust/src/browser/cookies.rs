@@ -41,15 +41,14 @@ pub enum CookieError {
     #[error("DPAPI error: {0}")]
     Dpapi(String),
 
-    /// Chrome 127+ App-Bound Encryption (ABE) is protecting the cookie encryption key.
+    /// Chromium App-Bound Encryption (ABE) is protecting matching cookies.
     /// The user-level DPAPI key in Local State can no longer decrypt cookies encrypted
-    /// after the ABE migration.  Decryption of the key itself succeeds, but AES-GCM
-    /// authentication fails on every cookie.  Resolution: use Microsoft Edge, Firefox,
-    /// or manual cookie import.
+    /// after the ABE migration. Decryption of the key itself succeeds, but AES-GCM
+    /// authentication fails on every matching cookie. Resolution: use Firefox or
+    /// manual cookie import.
     #[error(
-        "Chrome App-Bound Encryption (Chrome 127+) is blocking automatic import. \
-             Try Microsoft Edge or Firefox instead, or paste cookies manually \
-             (Settings → Cookies)."
+        "Chromium App-Bound Encryption is blocking automatic cookie import. \
+             Paste cookies manually (Settings → Cookies) or try Firefox."
     )]
     AppBoundEncryption,
 }

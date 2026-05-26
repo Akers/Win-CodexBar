@@ -87,7 +87,16 @@ impl MiniMaxRegion {
     pub fn billing_url(self) -> &'static str {
         match self {
             MiniMaxRegion::Global => "https://platform.minimax.io/account/amount",
-            MiniMaxRegion::ChinaMainland => "https://platform.minimaxi.com/account/amount",
+            // The China web console hosts dashboard pages under platform.minimaxi.com,
+            // but its billing-history JSON endpoint is served from www.minimaxi.com.
+            MiniMaxRegion::ChinaMainland => "https://www.minimaxi.com/account/amount",
+        }
+    }
+
+    pub fn dashboard_url(self) -> &'static str {
+        match self {
+            MiniMaxRegion::Global => "https://platform.minimax.io/user-center",
+            MiniMaxRegion::ChinaMainland => "https://platform.minimaxi.com/user-center",
         }
     }
 }
@@ -316,10 +325,20 @@ impl MiniMaxProvider {
 
         let response = client
             .get(region.billing_url())
-            .query(&[("page", "1"), ("limit", "100")])
+            .query(&[("page", "1"), ("limit", "100"), ("aggregate", "false")])
             .header("Cookie", cookie_header)
             .header("Accept", "application/json, text/plain, */*")
             .header("X-Requested-With", "XMLHttpRequest")
+            .header("Origin", origin_from_url(region.billing_url()))
+            .header(
+                "Referer",
+                format!("{}/account", origin_from_url(region.billing_url())),
+            )
+            .header(
+                "User-Agent",
+                "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 \
+                 (KHTML, like Gecko) Chrome/143.0.0.0 Safari/537.36",
+            )
             .send()
             .await?;
 
@@ -393,6 +412,17 @@ fn parse_billing_summary(json: &serde_json::Value) -> Result<MiniMaxBillingSumma
         ));
     }
     Ok(aggregate_billing(&payload.charge_records, Utc::now()))
+}
+
+fn origin_from_url(url: &str) -> String {
+    reqwest::Url::parse(url)
+        .ok()
+        .and_then(|parsed| {
+            let scheme = parsed.scheme();
+            let host = parsed.host_str()?;
+            Some(format!("{scheme}://{host}"))
+        })
+        .unwrap_or_else(|| url.to_string())
 }
 
 fn aggregate_billing(

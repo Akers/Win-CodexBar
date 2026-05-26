@@ -68,6 +68,9 @@ pub fn import_browser_cookies(
     // Extract the cookie header.
     let cookies = CookieExtractor::extract_for_domain(&browser, domain).map_err(|e| match e {
         CookieError::Dpapi(msg) => format!("DPAPI error: {msg}"),
+        CookieError::AppBoundEncryption => {
+            app_bound_encryption_message(browser.browser_type.display_name(), domain)
+        }
         other => other.to_string(),
     })?;
 
@@ -99,5 +102,27 @@ fn browser_type_key(bt: codexbar::browser::detection::BrowserType) -> &'static s
         BrowserType::Arc => "arc",
         BrowserType::Firefox => "firefox",
         BrowserType::Chromium => "chromium",
+    }
+}
+
+fn app_bound_encryption_message(browser_name: &str, domain: &str) -> String {
+    format!(
+        "{browser_name} found cookies for {domain}, but Chromium App-Bound Encryption blocked automatic decryption. \
+         This affects recent Chrome/Edge/Brave versions. Paste the Cookie request header manually in Settings → Cookies, \
+         or import from Firefox if you are signed in there."
+    )
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn app_bound_encryption_message_is_browser_specific() {
+        let message = app_bound_encryption_message("Microsoft Edge", "platform.minimaxi.com");
+
+        assert!(message.contains("Microsoft Edge found cookies for platform.minimaxi.com"));
+        assert!(message.contains("Paste the Cookie request header manually"));
+        assert!(!message.contains("Try Microsoft Edge"));
     }
 }
