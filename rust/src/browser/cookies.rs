@@ -77,6 +77,21 @@ impl Cookie {
 pub struct CookieExtractor;
 
 impl CookieExtractor {
+    fn parent_cookie_domain(domain: &str) -> Option<&str> {
+        let (_, parent) = domain.split_once('.')?;
+        parent.contains('.').then_some(parent)
+    }
+
+    fn domain_query_values(domain: &str) -> (String, String, String, String) {
+        let parent = Self::parent_cookie_domain(domain).unwrap_or(domain);
+        (
+            format!("%{}", domain),
+            format!(".{}", domain),
+            parent.to_string(),
+            format!(".{}", parent),
+        )
+    }
+
     /// Extract cookies for a domain from a browser
     pub fn extract_for_domain(
         browser: &DetectedBrowser,
@@ -193,8 +208,8 @@ impl CookieExtractor {
             e
         })?;
 
-        let domain_pattern = format!("%{}", domain);
-        let dot_domain_pattern = format!(".{}", domain);
+        let (domain_pattern, dot_domain_pattern, parent_domain, dot_parent_domain) =
+            Self::domain_query_values(domain);
         tracing::debug!("Searching for cookies for domain {}", domain);
 
         let mut cookies = Vec::new();
@@ -206,20 +221,28 @@ impl CookieExtractor {
             let mut stmt = conn.prepare(
                 "SELECT name, encrypted_value, host_key, path, expires_utc, is_secure, is_httponly
                  FROM cookies
-                 WHERE host_key LIKE ?1 OR host_key LIKE ?2",
+                 WHERE host_key LIKE ?1 OR host_key = ?2 OR host_key = ?3 OR host_key = ?4",
             )?;
 
-            let rows = stmt.query_map([&domain_pattern, &dot_domain_pattern], |row| {
-                Ok((
-                    row.get::<_, String>(0)?,   // name
-                    row.get::<_, Vec<u8>>(1)?,  // encrypted_value
-                    row.get::<_, String>(2)?,   // host_key
-                    row.get::<_, String>(3)?,   // path
-                    row.get::<_, i64>(4)?,      // expires_utc
-                    row.get::<_, i32>(5)? != 0, // is_secure
-                    row.get::<_, i32>(6)? != 0, // is_httponly
-                ))
-            })?;
+            let rows = stmt.query_map(
+                [
+                    &domain_pattern,
+                    &dot_domain_pattern,
+                    &parent_domain,
+                    &dot_parent_domain,
+                ],
+                |row| {
+                    Ok((
+                        row.get::<_, String>(0)?,   // name
+                        row.get::<_, Vec<u8>>(1)?,  // encrypted_value
+                        row.get::<_, String>(2)?,   // host_key
+                        row.get::<_, String>(3)?,   // path
+                        row.get::<_, i64>(4)?,      // expires_utc
+                        row.get::<_, i32>(5)? != 0, // is_secure
+                        row.get::<_, i32>(6)? != 0, // is_httponly
+                    ))
+                },
+            )?;
 
             for row in rows {
                 let (name, encrypted_value, host_key, path, expires_utc, is_secure, is_http_only) =
@@ -484,8 +507,8 @@ impl CookieExtractor {
         // Copy to temp (browser may have it locked)
         let temp_db = Self::copy_to_temp(&cookies_db)?;
 
-        let domain_pattern = format!("%{}", domain);
-        let dot_domain_pattern = format!(".{}", domain);
+        let (domain_pattern, dot_domain_pattern, parent_domain, dot_parent_domain) =
+            Self::domain_query_values(domain);
 
         let mut cookies = Vec::new();
         {
@@ -495,20 +518,28 @@ impl CookieExtractor {
             let mut stmt = conn.prepare(
                 "SELECT name, value, host, path, expiry, isSecure, isHttpOnly
                  FROM moz_cookies
-                 WHERE host LIKE ?1 OR host LIKE ?2",
+                 WHERE host LIKE ?1 OR host = ?2 OR host = ?3 OR host = ?4",
             )?;
 
-            let rows = stmt.query_map([&domain_pattern, &dot_domain_pattern], |row| {
-                Ok(Cookie {
-                    name: row.get(0)?,
-                    value: row.get(1)?,
-                    domain: row.get(2)?,
-                    path: row.get(3)?,
-                    expires: row.get(4).ok(),
-                    is_secure: row.get::<_, i32>(5)? != 0,
-                    is_http_only: row.get::<_, i32>(6)? != 0,
-                })
-            })?;
+            let rows = stmt.query_map(
+                [
+                    &domain_pattern,
+                    &dot_domain_pattern,
+                    &parent_domain,
+                    &dot_parent_domain,
+                ],
+                |row| {
+                    Ok(Cookie {
+                        name: row.get(0)?,
+                        value: row.get(1)?,
+                        domain: row.get(2)?,
+                        path: row.get(3)?,
+                        expires: row.get(4).ok(),
+                        is_secure: row.get::<_, i32>(5)? != 0,
+                        is_http_only: row.get::<_, i32>(6)? != 0,
+                    })
+                },
+            )?;
 
             for row in rows {
                 cookies.push(row?);
@@ -751,5 +782,27 @@ mod tests {
         let detected = CookieExtractor::detect_app_bound_encryption(&path);
         let _ = std::fs::remove_file(&path);
         assert!(detected, "ABE should be detected when field is present");
+    }
+
+    #[test]
+    fn test_domain_query_values_include_parent_cookie_domain() {
+        let (domain_pattern, dot_domain, parent, dot_parent) =
+            CookieExtractor::domain_query_values("platform.minimaxi.com");
+
+        assert_eq!(domain_pattern, "%platform.minimaxi.com");
+        assert_eq!(dot_domain, ".platform.minimaxi.com");
+        assert_eq!(parent, "minimaxi.com");
+        assert_eq!(dot_parent, ".minimaxi.com");
+    }
+
+    #[test]
+    fn test_domain_query_values_do_not_collapse_apex_domain() {
+        let (domain_pattern, dot_domain, parent, dot_parent) =
+            CookieExtractor::domain_query_values("claude.ai");
+
+        assert_eq!(domain_pattern, "%claude.ai");
+        assert_eq!(dot_domain, ".claude.ai");
+        assert_eq!(parent, "claude.ai");
+        assert_eq!(dot_parent, ".claude.ai");
     }
 }
