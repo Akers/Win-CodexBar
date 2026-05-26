@@ -41,6 +41,7 @@ pub fn list_detected_browsers() -> Vec<DetectedBrowserBridge> {
 pub fn import_browser_cookies(
     provider_id: String,
     browser_type: String,
+    region: Option<String>,
 ) -> Result<Vec<CookieInfoBridge>, String> {
     use codexbar::browser::cookies::{CookieError, CookieExtractor};
     use codexbar::browser::detection::BrowserDetector;
@@ -48,9 +49,14 @@ pub fn import_browser_cookies(
     // Resolve the provider to get its cookie domain.
     let pid = parse_provider_arg(&provider_id)?;
 
-    let domain = pid
-        .cookie_domain()
-        .ok_or_else(|| format!("Provider '{provider_id}' does not use cookie authentication"))?;
+    // Determine cookie domain, allowing region override for multi-region providers.
+    let domain = if pid == codexbar::core::ProviderId::MiniMax {
+        let region_val = region.as_deref().unwrap_or("global");
+        codexbar::providers::minimax::MiniMaxRegion::from(region_val).cookie_domain()
+    } else {
+        pid.cookie_domain()
+            .ok_or_else(|| format!("Provider '{provider_id}' does not use cookie authentication"))?
+    };
 
     // Find the requested browser.
     let browsers = BrowserDetector::detect_all();

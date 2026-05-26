@@ -71,9 +71,28 @@ struct MiniMaxBillingBreakdown {
 
 /// MiniMax API region
 #[derive(Debug, Clone, Copy, PartialEq)]
-enum MiniMaxRegion {
+pub enum MiniMaxRegion {
     Global,
     ChinaMainland,
+}
+
+impl MiniMaxRegion {
+    /// Browser cookie domain for this region.
+    pub fn cookie_domain(self) -> &'static str {
+        match self {
+            MiniMaxRegion::Global => "platform.minimaxi.com",
+            MiniMaxRegion::ChinaMainland => "minimax.com",
+        }
+    }
+}
+
+impl From<&str> for MiniMaxRegion {
+    fn from(s: &str) -> Self {
+        match s {
+            "china" => MiniMaxRegion::ChinaMainland,
+            _ => MiniMaxRegion::Global,
+        }
+    }
 }
 
 /// MiniMax provider
@@ -857,5 +876,26 @@ mod tests {
         assert_eq!(summary.top_methods[0].tokens, 3000);
         assert_eq!(summary.top_methods[1].name, "chat");
         assert_eq!(summary.top_methods[1].tokens, 1000);
+    }
+
+    #[test]
+    fn minimax_region_cookie_domain_global() {
+        assert_eq!(
+            MiniMaxRegion::Global.cookie_domain(),
+            "platform.minimaxi.com"
+        );
+    }
+
+    #[test]
+    fn minimax_region_cookie_domain_china() {
+        assert_eq!(MiniMaxRegion::ChinaMainland.cookie_domain(), "minimax.com");
+    }
+
+    #[test]
+    fn minimax_region_from_str() {
+        assert_eq!(MiniMaxRegion::from("china"), MiniMaxRegion::ChinaMainland);
+        assert_eq!(MiniMaxRegion::from("global"), MiniMaxRegion::Global);
+        assert_eq!(MiniMaxRegion::from("unknown"), MiniMaxRegion::Global);
+        assert_eq!(MiniMaxRegion::from(""), MiniMaxRegion::Global);
     }
 }

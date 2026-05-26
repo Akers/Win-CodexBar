@@ -316,6 +316,7 @@ export function ProviderDetailPane({
         key={`cookie-${detail.id}-${credentialRevision}`}
         providerId={detail.id}
         cookieDomain={cookieDomain}
+        region={detail.region}
       />
       <ChartsSection
         providerId={detail.id}
