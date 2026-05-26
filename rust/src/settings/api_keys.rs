@@ -200,6 +200,15 @@ pub fn get_api_key_providers() -> Vec<ProviderConfigInfo> {
             dashboard_url: Some("https://docs.warp.dev/reference/cli/api-keys"),
         },
         ProviderConfigInfo {
+            id: ProviderId::MiniMax,
+            name: "MiniMax",
+            requires_api_key: true,
+            api_key_env_var: Some("MINIMAX_API_KEY"),
+            api_key_help: Some("Get your API key from MiniMax Platform → Account → API Keys"),
+            config_file_path: None,
+            dashboard_url: Some("https://platform.minimaxi.com/user-center"),
+        },
+        ProviderConfigInfo {
             id: ProviderId::Ollama,
             name: "Ollama",
             requires_api_key: false,
