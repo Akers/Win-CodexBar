@@ -678,14 +678,25 @@ impl Provider for MiniMaxProvider {
 
         match ctx.source_mode {
             SourceMode::Auto => {
-                if let Some(cookie_header) = ctx.manual_cookie_header.as_deref()
-                    && let Ok(result) = self.fetch_billing_with_cookie(cookie_header, region).await
-                {
-                    return Ok(result);
+                // Try cookie authentication first if cookie is present
+                if let Some(cookie_header) = ctx.manual_cookie_header.as_deref() {
+                    match self.fetch_billing_with_cookie(cookie_header, region).await {
+                        Ok(result) => return Ok(result),
+                        Err(e) => {
+                            // If cookie auth fails, don't fallback to API key if cookie was explicitly set
+                            tracing::debug!("Cookie authentication failed: {}", e);
+                            // If we have a manual cookie, return the actual auth error instead of falling back
+                            return Err(e);
+                        }
+                    }
                 }
+
+                // No cookie present, try API key authentication
                 if let Ok(result) = self.fetch_via_web().await {
                     return Ok(result);
                 }
+
+                // Fallback to probe only if no cookie or API key is configured
                 let usage = self.probe_cli().await?;
                 Ok(ProviderFetchResult::new(usage, "cli"))
             }

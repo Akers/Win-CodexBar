@@ -265,17 +265,27 @@ impl CookieExtractor {
         // check whether Chrome App-Bound Encryption (Chrome 127+) is the culprit.
         // ABE replaces the user-level DPAPI cookie key with a system-level key that
         // cannot be read by third-party tools, causing systematic AES-GCM auth failures.
-        if cookies.is_empty()
-            && decrypt_failures > 0
-            && Self::detect_app_bound_encryption(&local_state_path)
-        {
-            tracing::warn!(
-                browser = %browser.browser_type.display_name(),
-                decrypt_failures,
-                "Chrome App-Bound Encryption (ABE) detected: all {} cookies failed to decrypt",
-                decrypt_failures
-            );
-            return Err(CookieError::AppBoundEncryption);
+        if cookies.is_empty() && decrypt_failures > 0 {
+            if Self::detect_app_bound_encryption(&local_state_path) {
+                tracing::warn!(
+                    browser = %browser.browser_type.display_name(),
+                    decrypt_failures,
+                    "Chrome App-Bound Encryption (ABE) detected: all {} cookies failed to decrypt",
+                    decrypt_failures
+                );
+                return Err(CookieError::AppBoundEncryption);
+            } else {
+                tracing::warn!(
+                    browser = %browser.browser_type.display_name(),
+                    decrypt_failures,
+                    "All {} candidate cookies failed to decrypt (no ABE detected)",
+                    decrypt_failures
+                );
+                return Err(CookieError::Decryption(format!(
+                    "All {} matching cookies failed to decrypt. Try manual cookie paste instead.",
+                    decrypt_failures
+                )));
+            }
         }
 
         Ok(cookies)
