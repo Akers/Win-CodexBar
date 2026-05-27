@@ -218,6 +218,7 @@ impl ProviderUsageSnapshot {
     }
 
     pub(super) fn from_error(id: ProviderId, metadata: &ProviderMetadata, error: String) -> Self {
+        let error = friendly_provider_error(id, &error);
         Self {
             provider_id: id.cli_name().to_string(),
             display_name: id.display_name().to_string(),
@@ -249,6 +250,52 @@ impl ProviderUsageSnapshot {
             fetch_duration_ms: None,
         }
     }
+}
+
+pub(crate) fn friendly_provider_error(id: ProviderId, error: &str) -> String {
+    if id != ProviderId::Claude {
+        return error.to_string();
+    }
+
+    let trimmed = error.trim();
+    let lower = trimmed.to_lowercase();
+
+    if lower.contains("swift.cancellationerror")
+        || lower.contains("the operation couldn't be completed")
+        || lower.contains("the operation could not be completed")
+    {
+        return "Claude usage fetch was cancelled before usage data was returned. Refresh Claude, or re-authenticate with Claude Code and try again.".to_string();
+    }
+
+    if lower.contains("claude oauth credentials not found") {
+        return "Claude sign-in was not found. Run `claude` once to authenticate, then refresh Claude in Win-CodexBar.".to_string();
+    }
+
+    if lower.contains("oauth token expired") || lower.contains("token invalid or expired") {
+        return "Claude sign-in expired. Run `claude` to refresh your Claude Code login, then refresh Claude in Win-CodexBar.".to_string();
+    }
+
+    if trimmed == "Authentication required" {
+        return "Claude needs sign-in before Win-CodexBar can read usage. Run `claude` once, or add Claude cookies in Provider settings.".to_string();
+    }
+
+    if lower.starts_with("claude usage failed from all configured sources.") {
+        return trimmed
+            .replace(
+                "OAuth: OAuth error: Claude OAuth credentials not found. Run `claude` to authenticate.",
+                "OAuth: sign-in not found",
+            )
+            .replace(
+                "Web: No cookies available for web API",
+                "Web: no Claude cookies available",
+            )
+            .replace(
+                "CLI: Provider not installed:",
+                "CLI: not installed:",
+            );
+    }
+
+    trimmed.to_string()
 }
 
 #[derive(Debug, Clone, Serialize)]

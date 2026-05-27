@@ -1,4 +1,5 @@
-import { useCallback, useEffect, useMemo, useRef } from "react";
+import { Fragment, useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { getCurrentWindow, LogicalPosition, LogicalSize } from "@tauri-apps/api/window";
 import type { BootstrapState, ProviderUsageSnapshot } from "../types/bridge";
 import { setSurfaceMode, openSettingsWindow, quitApp as quitApplication } from "../lib/tauri";
 import { useProviders } from "../hooks/useProviders";
@@ -7,11 +8,11 @@ import { useUpdateState } from "../hooks/useUpdateState";
 import { useLocale } from "../hooks/useLocale";
 import MenuCard from "../components/MenuCard";
 import MenuSurface, {
-  MenuSummary,
   MenuEmpty,
   type MenuFooterRow,
 } from "../components/MenuSurface";
 import UpdateBanner from "../components/UpdateBanner";
+import ProviderGrid, { prioritizeProviders } from "../components/ProviderGrid";
 import { DEMO_ENABLED, DEMO_PROVIDERS } from "../lib/demoProviders";
 
 /** Sort: highest primary used% first, then alphabetical by name. */
@@ -26,10 +27,9 @@ function sortProviders(
 }
 
 /**
- * Pop-out window — same card stack as the tray (per upstream parity),
- * just hosted in a detached resizable window with a slightly wider
- * surface variant. If `providerId` is supplied (deep-link) we scroll
- * that card into view, but every provider card is always rendered.
+ * Pop-out window — dashboard and provider deep-links both keep the full card
+ * stack. A provider target only scrolls/focuses the requested card so the
+ * layout stays consistent with the tray/menu surface.
  */
 export default function PopOutPanel({
   state,
@@ -42,7 +42,6 @@ export default function PopOutPanel({
     providers: realProviders,
     isRefreshing,
     refresh,
-    lastRefresh,
     hasCachedData,
   } = useProviders();
   const providers = DEMO_ENABLED ? DEMO_PROVIDERS : realProviders;
@@ -52,23 +51,62 @@ export default function PopOutPanel({
   const { t } = useLocale();
 
   const sorted = useMemo(() => {
-    const ordered = sortProviders(providers);
-    if (!providerId) return ordered;
-    const selected = ordered.find((p) => p.providerId === providerId);
-    if (!selected) return ordered;
-    return [
-      selected,
-      ...ordered.filter((p) => p.providerId !== providerId),
-    ];
-  }, [providers, providerId]);
-  const cardRefs = useRef(new Map<string, HTMLDivElement>());
-  const errorCount = useMemo(
-    () => sorted.filter((p) => p.error !== null).length,
-    [sorted],
+    return sortProviders(providers);
+  }, [providers]);
+  const [selectedProviderId, setSelectedProviderId] = useState<string | null>(
+    providerId ?? null,
   );
+  const [gridExpanded, setGridExpanded] = useState(false);
+  const cardRefs = useRef(new Map<string, HTMLDivElement>());
 
   useEffect(() => {
-    if (!providerId || sorted.length === 0) return;
+    setSelectedProviderId(providerId ?? null);
+  }, [providerId]);
+
+  const visibleProviders = useMemo(
+    () => {
+      if (selectedProviderId === null) {
+        if (sorted.length + 1 > 32 && !gridExpanded) {
+          return prioritizeProviders(sorted, null).slice(0, 4);
+        }
+        return sorted;
+      }
+      const match = sorted.find((p) => p.providerId === selectedProviderId);
+      return match ? [match] : sorted;
+    },
+    [sorted, selectedProviderId, gridExpanded],
+  );
+
+  const handleGridClick = useCallback((nextProviderId: string | null) => {
+    setSelectedProviderId(nextProviderId);
+  }, []);
+
+  useEffect(() => {
+    const win = getCurrentWindow();
+    const screenWidth = window.screen.availWidth || window.innerWidth || 420;
+    const screenHeight = window.screen.availHeight || window.innerHeight || 680;
+    const width = Math.max(320, Math.min(420, screenWidth - 16));
+    // Leave room for native borders/title bars on Windows; the body scrolls.
+    const height = Math.max(320, Math.min(680, screenHeight - 88));
+    const screenOrigin = window.screen as Screen & {
+      availLeft?: number;
+      availTop?: number;
+    };
+    const left = screenOrigin.availLeft ?? 0;
+    const top = screenOrigin.availTop ?? 0;
+
+    void win.setSize(new LogicalSize(width, height)).then(() =>
+      win.setPosition(
+        new LogicalPosition(
+          left + Math.max(8, screenWidth - width - 8),
+          top + 8,
+        ),
+      ),
+    ).catch(() => {});
+  }, []);
+
+  useEffect(() => {
+    if (!providerId || selectedProviderId !== providerId || sorted.length === 0) return;
 
     let cancelled = false;
     const scrollToProvider = () => {
@@ -103,7 +141,7 @@ export default function PopOutPanel({
       window.clearTimeout(timer);
       window.clearTimeout(lateTimer);
     };
-  }, [providerId, sorted]);
+  }, [providerId, selectedProviderId, sorted]);
 
   const openSettings = useCallback(() => {
     openSettingsWindow("general");
@@ -188,36 +226,39 @@ export default function PopOutPanel({
       actions={headerActions}
       banner={banner}
       footerRows={footerRows}
-      summary={
-        <MenuSummary
-          total={sorted.length}
-          errorCount={errorCount}
-          isRefreshing={isRefreshing}
-          lastRefresh={lastRefresh}
-        />
-      }
     >
+      <ProviderGrid
+        providers={providers}
+        selectedProviderId={selectedProviderId}
+        showAsUsed={settings.showAsUsed}
+        expanded={gridExpanded}
+        onExpandedChange={setGridExpanded}
+        onSelect={handleGridClick}
+      />
+      <div className="provider-grid__divider" />
       <div className="menu-stack">
-        {sorted.map((p, idx) => (
-          <div
-            key={p.providerId}
-            className="menu-stack__item"
-            data-deeplinked={p.providerId === providerId || undefined}
-            ref={(node) => {
-              if (node) {
-                cardRefs.current.set(p.providerId, node);
-              } else {
-                cardRefs.current.delete(p.providerId);
-              }
-            }}
-          >
+        {visibleProviders.map((p, idx) => (
+          <Fragment key={p.providerId}>
             {idx > 0 && <div className="menu-stack__sep" />}
-            <MenuCard
-              provider={p}
-              hideEmail={settings.hidePersonalInfo}
-              resetTimeRelative={settings.resetTimeRelative}
-            />
-          </div>
+            <div
+              className={`menu-stack__item${selectedProviderId === p.providerId ? " menu-stack__item--selected" : ""}`}
+              ref={(node) => {
+                if (node) {
+                  cardRefs.current.set(p.providerId, node);
+                } else {
+                  cardRefs.current.delete(p.providerId);
+                }
+              }}
+            >
+              <MenuCard
+                provider={p}
+                hideEmail={settings.hidePersonalInfo}
+                resetTimeRelative={settings.resetTimeRelative}
+                showAsUsed={settings.showAsUsed}
+                compactMetrics={selectedProviderId === null}
+              />
+            </div>
+          </Fragment>
         ))}
       </div>
     </MenuSurface>

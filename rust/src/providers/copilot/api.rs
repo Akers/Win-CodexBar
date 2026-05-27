@@ -10,6 +10,9 @@ use serde::Deserialize;
 use serde_json::{Map, Value};
 use std::process::Command;
 
+#[cfg(windows)]
+use std::os::windows::process::CommandExt;
+
 const DEFAULT_GITHUB_HOST: &str = "github.com";
 const COPILOT_USAGE_PATH: &str = "/copilot_internal/user";
 const GITHUB_USER_PATH: &str = "/user";
@@ -531,10 +534,10 @@ fn load_gh_cli_token(github_host: Option<&str>) -> Option<String> {
         .map(str::trim)
         .filter(|host| !host.is_empty())
         .unwrap_or(DEFAULT_GITHUB_HOST);
-    let output = Command::new("gh")
-        .args(["auth", "token", "--hostname", host])
-        .output()
-        .ok()?;
+    let mut command = Command::new("gh");
+    command.args(["auth", "token", "--hostname", host]);
+    hide_windows_console(&mut command);
+    let output = command.output().ok()?;
 
     if !output.status.success() {
         return None;
@@ -543,6 +546,15 @@ fn load_gh_cli_token(github_host: Option<&str>) -> Option<String> {
     let token = String::from_utf8(output.stdout).ok()?;
     normalize_token(Some(&token))
 }
+
+#[cfg(windows)]
+fn hide_windows_console(command: &mut Command) {
+    const CREATE_NO_WINDOW: u32 = 0x08000000;
+    command.creation_flags(CREATE_NO_WINDOW);
+}
+
+#[cfg(not(windows))]
+fn hide_windows_console(_command: &mut Command) {}
 
 fn parse_iso_date(s: &str) -> Option<DateTime<Utc>> {
     if let Ok(dt) = DateTime::parse_from_rfc3339(s) {

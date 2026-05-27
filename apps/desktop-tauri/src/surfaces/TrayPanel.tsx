@@ -2,19 +2,19 @@ import { Fragment, useCallback, useEffect, useMemo, useRef, useState } from "rea
 import { getCurrentWindow, LogicalSize } from "@tauri-apps/api/window";
 import type { BootstrapState, ProviderUsageSnapshot } from "../types/bridge";
 import { setSurfaceMode, openSettingsWindow, quitApp as quitApplication } from "../lib/tauri";
-import { reanchorTrayPanel } from "../lib/tauri";
+import { getWorkAreaRect, reanchorTrayPanel } from "../lib/tauri";
 import { useProviders } from "../hooks/useProviders";
 import { useSettings } from "../hooks/useSettings";
 import { useUpdateState } from "../hooks/useUpdateState";
 import { useLocale } from "../hooks/useLocale";
+import { useSurfaceTarget } from "../hooks/useSurfaceMode";
 import MenuCard from "../components/MenuCard";
 import MenuSurface, {
   MenuEmpty,
   type MenuFooterRow,
 } from "../components/MenuSurface";
 import UpdateBanner from "../components/UpdateBanner";
-import { ProviderIcon } from "../components/providers/ProviderIcon";
-import { getProviderIcon } from "../components/providers/providerIcons";
+import ProviderGrid, { prioritizeProviders } from "../components/ProviderGrid";
 import { openProviderDashboard, openProviderStatusPage } from "../lib/tauri";
 import { DEMO_ENABLED, DEMO_PROVIDERS } from "../lib/demoProviders";
 
@@ -76,14 +76,21 @@ export default function TrayPanel({ state }: { state: BootstrapState }) {
   const { updateState, checkNow, download, apply, dismiss, openRelease } =
     useUpdateState();
   const { t } = useLocale();
+  const surfaceTarget = useSurfaceTarget("trayPanel");
 
   const sorted = useMemo(() => sortProviders(providers), [providers]);
+  const initialProviderId =
+    surfaceTarget?.kind === "provider" ? surfaceTarget.providerId : null;
 
   // null = overview (all providers), string = single provider detail
-  // Default to overview like macOS — shows all cards sorted by priority
   const [selectedProviderId, setSelectedProviderId] = useState<string | null>(
-    null,
+    initialProviderId,
   );
+  const [gridExpanded, setGridExpanded] = useState(false);
+
+  useEffect(() => {
+    setSelectedProviderId(initialProviderId);
+  }, [initialProviderId]);
 
   // Hide panel during the initial resize+reposition dance so the user
   // doesn't see the window jump around.  Revealed after first layout pass.
@@ -102,6 +109,9 @@ export default function TrayPanel({ state }: { state: BootstrapState }) {
           .filter((p): p is ProviderUsageSnapshot => p !== undefined);
       }
       // Overview: show all providers (they have data, email, or error), non-error first
+      if (sorted.length + 1 > 32 && !gridExpanded) {
+        return prioritizeProviders(sorted, null).slice(0, 4);
+      }
       const normal = sorted.filter((p) => !p.error);
       const errors = sorted.filter((p) => !!p.error);
       return [...normal, ...errors];
@@ -114,7 +124,7 @@ export default function TrayPanel({ state }: { state: BootstrapState }) {
       return [...normal, ...errors];
     }
     return [match];
-  }, [sorted, selectedProviderId]);
+  }, [sorted, selectedProviderId, gridExpanded]);
 
   // Dynamically size the Tauri window to fit content, capped at 800px.
   // The first pass can grow the hidden window for a complete measurement.
@@ -122,7 +132,7 @@ export default function TrayPanel({ state }: { state: BootstrapState }) {
   // bounce to max height and back while providers finish refreshing.
   useEffect(() => {
     const TRAY_WIDTH = 310;
-    const MAX_HEIGHT = 920;
+    const MAX_MEASURE_HEIGHT = 920;
     const MIN_HEIGHT = 200;
 
     const resize = async () => {
@@ -130,14 +140,21 @@ export default function TrayPanel({ state }: { state: BootstrapState }) {
       const win = getCurrentWindow();
       const surface = document.querySelector<HTMLElement>(".menu-surface--tray");
       if (!surface) return;
+      const html = document.documentElement;
+      const pageBody = document.body;
+      const workArea = await getWorkAreaRect().catch(() => null);
+      const maxHeight = Math.max(
+        MIN_HEIGHT,
+        Math.min(MAX_MEASURE_HEIGHT, (workArea?.height ?? MAX_MEASURE_HEIGHT) - 16),
+      );
 
       const body = surface.querySelector<HTMLElement>(".menu-surface__body");
       const stack = surface.querySelector<HTMLElement>(".menu-stack");
 
       const previous = {
-        htmlOverflow: document.documentElement.style.overflow,
-        bodyOverflow: document.body.style.overflow,
-        bodyMinHeight: document.body.style.minHeight,
+        htmlOverflow: html.style.overflow,
+        bodyOverflow: pageBody.style.overflow,
+        bodyMinHeight: pageBody.style.minHeight,
         surfaceMaxHeight: surface.style.maxHeight,
         surfaceOverflow: surface.style.overflow,
         bodyInnerOverflow: body?.style.overflow,
@@ -146,20 +163,27 @@ export default function TrayPanel({ state }: { state: BootstrapState }) {
       };
       let committedHeight = false;
 
-      document.documentElement.style.overflow = "visible";
-      document.body.style.overflow = "visible";
-      document.body.style.minHeight = "0";
+      html.style.overflow = "visible";
+      pageBody.style.overflow = "visible";
+      pageBody.style.minHeight = "0";
       surface.style.maxHeight = "none";
       surface.style.overflow = "visible";
       if (body) { body.style.overflow = "visible"; body.style.flex = "0 0 auto"; }
       if (stack) { stack.style.overflow = "visible"; }
 
+      const revealPanel = () => {
+        if (run === resizeRunRef.current) {
+          layoutReadyRef.current = true;
+          setLayoutReady(true);
+        }
+      };
+
       try {
         if (!layoutReadyRef.current) {
-          await win.setSize(new LogicalSize(TRAY_WIDTH, MAX_HEIGHT));
+          await win.setSize(new LogicalSize(TRAY_WIDTH, maxHeight));
           for (let i = 0; i < 20; i++) {
             await new Promise<void>((r) => setTimeout(r, 50));
-            if (document.documentElement.clientHeight >= MAX_HEIGHT - 20) break;
+            if (html.clientHeight >= maxHeight - 20) break;
           }
         }
 
@@ -185,7 +209,7 @@ export default function TrayPanel({ state }: { state: BootstrapState }) {
         }
 
         const contentHeight = Math.ceil(maxBottom - surfaceRect.top) + 4;
-        const height = Math.min(Math.max(contentHeight, MIN_HEIGHT), MAX_HEIGHT);
+        const height = Math.min(Math.max(contentHeight, MIN_HEIGHT), maxHeight);
 
         // Lock surface to measured content height.
         surface.style.maxHeight = `${height}px`;
@@ -194,19 +218,21 @@ export default function TrayPanel({ state }: { state: BootstrapState }) {
         await win.setSize(new LogicalSize(TRAY_WIDTH, height));
         await reanchorTrayPanel().catch(() => {});
 
-        // First layout pass complete — reveal the panel
-        if (run === resizeRunRef.current) {
-          layoutReadyRef.current = true;
-          setLayoutReady(true);
-        }
+        // First layout pass complete — reveal the panel.
+        revealPanel();
+      } catch (error) {
+        console.warn("CodexBar tray panel resize failed", error);
+        // If Windows refuses a transient resize/reanchor request, prefer a
+        // visible slightly-imperfect panel over an unusable invisible one.
+        revealPanel();
       } finally {
         if (!committedHeight) {
           surface.style.maxHeight = previous.surfaceMaxHeight;
         }
         surface.style.overflow = previous.surfaceOverflow;
-        document.documentElement.style.overflow = previous.htmlOverflow;
-        document.body.style.overflow = previous.bodyOverflow;
-        document.body.style.minHeight = previous.bodyMinHeight;
+        html.style.overflow = previous.htmlOverflow;
+        pageBody.style.overflow = previous.bodyOverflow;
+        pageBody.style.minHeight = previous.bodyMinHeight;
         if (body) {
           body.style.overflow = previous.bodyInnerOverflow ?? "";
           body.style.flex = previous.bodyFlex ?? "";
@@ -221,6 +247,7 @@ export default function TrayPanel({ state }: { state: BootstrapState }) {
 
     return () => {
       clearTimeout(t0);
+      resizeRunRef.current += 1;
     };
   }, [visibleProviders, providers]);
 
@@ -281,7 +308,6 @@ export default function TrayPanel({ state }: { state: BootstrapState }) {
     },
     [],
   );
-
   const banner = (
     <UpdateBanner
       updateState={updateState}
@@ -323,44 +349,14 @@ export default function TrayPanel({ state }: { state: BootstrapState }) {
       banner={banner}
       footerRows={footerRows}
     >
-      <div
-        className={`provider-grid${
-          providers.length + 1 <= 6 ? " provider-grid--sparse" : ""
-        }`}
-      >
-        {/* Overview button — first item like macOS */}
-        <button
-          type="button"
-          className={`provider-grid__item${selectedProviderId === null ? " provider-grid__item--active" : ""}`}
-          onClick={() => handleGridClick(null)}
-          title="Overview"
-        >
-          <span className="provider-grid__icon-overview">⊞</span>
-          <span className="provider-grid__label">All</span>
-        </button>
-        {providers.map((p) => (
-          <button
-            key={p.providerId}
-            type="button"
-            className={`provider-grid__item${p.providerId === selectedProviderId ? " provider-grid__item--active" : ""}`}
-            onClick={() => handleGridClick(p.providerId)}
-            title={p.displayName}
-          >
-            <ProviderIcon providerId={p.providerId} size={16} />
-            <span className="provider-grid__label">{p.displayName}</span>
-            {/* Weekly indicator bar — matches macOS ProviderSwitcherView */}
-            {!p.error && (
-              <span
-                className="provider-grid__weekly-track"
-                style={{
-                  "--weekly-pct": `${Math.max(0, Math.min(100, p.primary.remainingPercent))}%`,
-                  "--weekly-color": getProviderIcon(p.providerId).brandColor,
-                } as React.CSSProperties}
-              />
-            )}
-          </button>
-        ))}
-      </div>
+      <ProviderGrid
+        providers={providers}
+        selectedProviderId={selectedProviderId}
+        showAsUsed={settings.showAsUsed}
+        expanded={gridExpanded}
+        onExpandedChange={setGridExpanded}
+        onSelect={handleGridClick}
+      />
       <div className="provider-grid__divider" />
       <div className="menu-stack">
         {visibleProviders.map((p, idx) => {
@@ -377,6 +373,8 @@ export default function TrayPanel({ state }: { state: BootstrapState }) {
                   provider={p}
                   hideEmail={settings.hidePersonalInfo}
                   resetTimeRelative={settings.resetTimeRelative}
+                  showAsUsed={settings.showAsUsed}
+                  compactMetrics={selectedProviderId === null}
                 />
               </div>
             </Fragment>

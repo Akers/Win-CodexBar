@@ -57,14 +57,23 @@ pub fn show(
     let url =
         WebviewUrl::App(format!("index.html?window=floatbar&orientation={orientation}").into());
 
-    let win = tauri::WebviewWindowBuilder::new(app, FLOATBAR_LABEL, url)
+    let builder = tauri::WebviewWindowBuilder::new(app, FLOATBAR_LABEL, url)
         .title("CodexBar Float Bar")
         .inner_size(w, h)
         .decorations(false)
         .shadow(false)
         .resizable(false)
         .always_on_top(true)
-        .skip_taskbar(true)
+        .skip_taskbar(true);
+
+    // WebView2 only honors an alpha (transparent) background when the native
+    // window is itself created transparent. Tauri cfg-gates this builder API
+    // off on macOS unless `macos-private-api` is enabled, so keep the Windows
+    // fix out of the macOS validation path.
+    #[cfg(windows)]
+    let builder = builder.transparent(true);
+
+    let win = builder
         .background_color(tauri::utils::config::Color(0, 0, 0, 0))
         .visible(false)
         .build()

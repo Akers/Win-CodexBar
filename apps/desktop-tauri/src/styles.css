@@ -1042,6 +1042,10 @@ html {
    user never sees the window jump around.  Once layout is measured and
    the window is anchored in its final position, .tray-panel-reveal--ready
    fades the content in smoothly. */
+html:has(.tray-panel-reveal),
+body:has(.tray-panel-reveal) {
+  background: transparent;
+}
 .tray-panel-reveal {
   opacity: 0;
 }
@@ -1778,10 +1782,11 @@ html {
   min-height: 340px;
   flex-shrink: 0;
   overflow: clip;
+  min-width: 0;
 }
 
 .provider-sidebar {
-  width: 200px;
+  width: clamp(164px, 32vw, 200px);
   flex-shrink: 0;
   display: flex;
   flex-direction: column;
@@ -1840,6 +1845,7 @@ html {
 
 .provider-detail {
   flex: 1;
+  min-width: 0;
   min-height: 0;
   overflow-y: auto;
   overscroll-behavior-y: contain;
@@ -1919,6 +1925,7 @@ html {
   align-items: center;
   justify-content: space-between;
   gap: 8px;
+  flex-wrap: wrap;
   margin-bottom: 6px;
 }
 
@@ -1926,8 +1933,32 @@ html {
   margin-bottom: 0;
 }
 
+.provider-detail-section__header .credential-btn {
+  max-width: 100%;
+  white-space: normal;
+  text-align: center;
+}
+
 .provider-detail-grid--storage {
   margin-top: 4px;
+}
+
+@media (max-width: 560px) {
+  .provider-split {
+    gap: 10px;
+  }
+
+  .provider-sidebar {
+    width: 156px;
+  }
+
+  .provider-sidebar-item {
+    padding-inline: 6px;
+  }
+
+  .provider-detail {
+    padding: 10px;
+  }
 }
 
 .provider-usage-bar {
@@ -2670,16 +2701,16 @@ html {
 }
 
 .shortcut-capture__button--ghost {
-  background: transparent;
-  border-color: transparent;
-  color: var(--accent);
-  padding: 4px 8px;
-  font-weight: 500;
+  background: var(--provider-row-bg);
+  border-color: var(--provider-icon-ring);
+  color: var(--provider-row-text-primary);
+  padding: 5px 10px;
+  font-weight: 600;
 }
 
 .shortcut-capture__button--ghost:hover:not(:disabled) {
-  background: rgba(10, 132, 255, 0.08);
-  border-color: transparent;
+  background: var(--provider-row-bg-hover);
+  border-color: var(--provider-row-border-selected);
   color: var(--accent);
 }
 
@@ -2687,6 +2718,8 @@ html {
   display: inline-flex;
   align-items: center;
   gap: 10px;
+  flex-wrap: wrap;
+  justify-content: flex-end;
 }
 
 .settings-section__hint {
@@ -2838,6 +2871,9 @@ html {
 .menu-surface--popout {
   width: 100%;
   padding: 6px 10px;
+  height: 100vh;
+  max-height: 100vh;
+  min-height: 0;
 }
 
 /* Header bar — small CodexBar wordmark + iconified actions
@@ -2920,6 +2956,71 @@ html {
   flex: 0 1 auto;
   min-height: 0;
   overflow-y: auto;
+}
+
+.menu-surface--popout .menu-surface__body {
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow-y: auto;
+  overflow-x: hidden;
+  scrollbar-width: thin;
+  scrollbar-color: rgba(142, 142, 147, 0.45) transparent;
+}
+
+.menu-surface--popout .menu-surface__body::-webkit-scrollbar {
+  width: 6px;
+}
+
+.menu-surface--popout .menu-surface__body::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+.menu-surface--popout .menu-surface__body::-webkit-scrollbar-thumb {
+  min-height: 36px;
+  border: 1px solid transparent;
+  border-radius: 999px;
+  background: rgba(142, 142, 147, 0.45);
+  background-clip: padding-box;
+}
+
+.menu-surface--popout .provider-grid {
+  grid-template-columns: repeat(10, minmax(0, 1fr));
+  gap: 9px 4px;
+  padding: 8px 8px 7px;
+}
+
+.menu-surface--popout .provider-grid--sparse {
+  grid-template-columns: repeat(auto-fit, 42px);
+  justify-content: start;
+  gap: 8px 7px;
+}
+
+.menu-surface--popout .provider-grid--sparse .provider-grid__item {
+  width: 42px;
+}
+
+.menu-surface--popout .provider-grid--sparse .provider-grid__label {
+  max-width: 42px;
+}
+
+.menu-surface--popout .provider-grid__divider {
+  height: 1px;
+  margin: 2px 0 6px;
+  background: rgba(255, 255, 255, 0.08);
+}
+
+.menu-surface--popout .menu-stack {
+  flex: 0 0 auto;
+  max-height: none;
+  overflow: visible;
+}
+
+.menu-surface--popout .menu-stack__item,
+.menu-surface--popout .menu-card {
+  background: transparent;
+  border: 0;
+  border-radius: 0;
+  box-shadow: none;
 }
 
 .menu-surface__empty {
@@ -3270,15 +3371,15 @@ html:has(.menu-surface--tray) {
 .menu-surface--tray .menu-card__charts {
   display: none;
 }
+.menu-surface--tray .menu-card__local-usage {
+  display: none;
+}
 /* Hide cost section in tray — macOS compact popover only shows usage metrics */
 .menu-surface--tray .menu-card__cost,
 .menu-surface--tray .menu-card__content > .menu-card__divider:has(+ .menu-card__cost) {
   display: none;
 }
 
-.menu-surface--tray .menu-card__local-usage {
-  gap: 10px;
-}
 .menu-card__local-grid {
   display: grid;
   grid-template-columns: 1fr 1fr;
@@ -3318,9 +3419,10 @@ html:has(.menu-surface--tray) {
   color: var(--text-secondary);
 }
 .menu-card__local-note span {
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
+  overflow: visible;
+  text-overflow: initial;
+  white-space: normal;
+  line-height: 1.3;
 }
 
 /* Tray footer — match macOS NSMenuItem native look (10pt, ~16px row height) */
@@ -3657,12 +3759,6 @@ html:has(.menu-surface--tray) {
   gap: 10px;
 }
 
-/* Subtle outline for a deep-linked card in the pop-out window. */
-.menu-stack__item[data-deeplinked] .menu-card {
-  background: var(--surface-elevated);
-  border-radius: 6px;
-}
-
 /* ════════════════════════════════════════════════════════════════════
  * macOS PARITY OVERLAY  (last cascade — wins over earlier rules)
  *
@@ -3727,6 +3823,9 @@ html:has(.menu-surface--tray) {
   border-radius: 0;
   border: none;
   box-shadow: none;
+  height: 100vh;
+  max-height: 100vh;
+  min-height: 0;
 }
 .menu-surface--tray {
   border: 1px solid rgba(255, 255, 255, 0.10);
@@ -4431,23 +4530,32 @@ html:has(.menu-surface--tray) {
 }
 .about-links {
   display: flex;
-  flex-direction: column;
-  align-items: center;
-  gap: 10px;
+  flex-direction: row;
+  justify-content: center;
+  flex-wrap: wrap;
+  gap: 8px;
   width: 100%;
-  margin: 8px 0 0;
+  margin: 10px 0 0;
   padding: 0;
 }
 .about-link {
-  display: block;
-  width: 100%;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 24px;
+  padding: 3px 10px;
+  border: 1px solid var(--panel-border);
+  border-radius: 6px;
+  background: rgba(255, 255, 255, 0.04);
   text-align: center;
   font-size: var(--font-caption);
   color: var(--accent);
   text-decoration: none;
 }
 .about-link:hover {
-  text-decoration: underline;
+  background: rgba(10, 132, 255, 0.10);
+  border-color: rgba(10, 132, 255, 0.28);
+  text-decoration: none;
 }
 .about-link-sep {
   display: none;
@@ -4603,4 +4711,192 @@ html:has(.menu-surface--tray) {
   flex-direction: column;
   gap: 1px;
   min-width: 0;
+}
+
+/* ── Windows QA polish: adaptive provider grid and compact heights ─── */
+.menu-surface--tray .provider-grid,
+.menu-surface--popout .provider-grid,
+.provider-grid {
+  grid-template-columns: repeat(10, minmax(0, 1fr));
+  gap: 8px 5px;
+}
+
+/* The 10-column override above also matches the sparse variant (it carries
+   both classes), packing 40px items into ~21px columns so adjacent tab
+   labels overlap. Re-assert the sparse track sizing after it. */
+.menu-surface--tray .provider-grid--sparse {
+  grid-template-columns: repeat(auto-fit, 40px);
+  justify-content: start;
+  gap: 8px 6px;
+}
+
+.menu-surface--popout .provider-grid--sparse {
+  grid-template-columns: repeat(auto-fit, 42px);
+  justify-content: start;
+  gap: 8px 7px;
+}
+
+.provider-grid__item {
+  min-height: 42px;
+  padding: 2px 1px 3px;
+}
+
+.provider-grid__label {
+  max-width: 30px;
+}
+
+.menu-surface--tray .provider-grid--compact,
+.menu-surface--popout .provider-grid--compact,
+.provider-grid--compact {
+  grid-template-columns: repeat(10, minmax(0, 1fr));
+  gap: 7px 5px;
+  padding-top: 7px;
+  padding-bottom: 5px;
+}
+
+.provider-grid--compact .provider-grid__item {
+  min-height: 37px;
+  gap: 1px;
+}
+
+.provider-grid--compact .provider-grid__label {
+  max-width: 28px;
+  font-size: 9px;
+  text-overflow: clip;
+}
+
+.provider-grid--compact .provider-grid__weekly-track {
+  width: 20px;
+  height: 3px;
+}
+
+.provider-grid__item--more {
+  color: var(--text-secondary);
+}
+
+.provider-grid__item--more .provider-grid__icon-overview {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 17px;
+  height: 17px;
+  border-radius: 4px;
+  background: rgba(255, 255, 255, 0.10);
+  font-size: 14px;
+  font-weight: 600;
+}
+
+.provider-grid__item--more:hover .provider-grid__icon-overview {
+  background: rgba(255, 255, 255, 0.16);
+}
+
+.provider-grid--compact .provider-icon,
+.provider-grid--compact .provider-grid__icon-overview {
+  transform: translateY(1px);
+}
+
+.settings-tabs {
+  gap: 4px;
+  padding: 5px;
+  background: rgba(255, 255, 255, 0.035);
+}
+
+.settings-tab {
+  border: 1px solid transparent;
+}
+
+.settings-tab:hover:not(.settings-tab--active) {
+  background: rgba(255, 255, 255, 0.055);
+}
+
+.settings-tab--active,
+.settings-tab[aria-selected="true"] {
+  border-color: rgba(10, 132, 255, 0.48);
+  background: rgba(10, 132, 255, 0.18);
+  color: var(--text-primary);
+  box-shadow: inset 0 0 0 1px rgba(10, 132, 255, 0.12);
+}
+
+.settings-tab--active .settings-tab__icon,
+.settings-tab[aria-selected="true"] .settings-tab__icon {
+  color: var(--accent);
+}
+
+.provider-detail-error {
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+  border-color: rgba(255, 69, 58, 0.24);
+  background: rgba(255, 69, 58, 0.07);
+  color: var(--text-primary);
+  line-height: 1.35;
+}
+
+.provider-detail-error__header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.provider-detail-error__header strong {
+  color: #ff6b62;
+  font-size: 0.82rem;
+}
+
+.provider-detail-error p {
+  margin: 0;
+  color: var(--text-secondary);
+  overflow-wrap: anywhere;
+}
+
+.provider-detail-error__copy {
+  flex-shrink: 0;
+  padding: 2px 7px;
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  border-radius: 5px;
+  background: rgba(255, 255, 255, 0.06);
+  color: var(--text-secondary);
+  font-size: 11px;
+  cursor: pointer;
+}
+
+.provider-detail-error__copy:hover {
+  background: rgba(255, 255, 255, 0.1);
+  color: var(--text-primary);
+}
+
+@media (max-height: 620px) {
+  .menu-surface--popout .provider-grid,
+  .menu-surface--tray .provider-grid {
+    gap: 6px 5px;
+    padding-top: 6px;
+    padding-bottom: 5px;
+  }
+
+  .menu-surface--popout .provider-grid__item,
+  .menu-surface--tray .provider-grid__item {
+    min-height: 36px;
+  }
+
+  .menu-surface--popout .menu-card__content {
+    gap: 8px;
+  }
+
+  .menu-surface--popout .menu-metric {
+    gap: 4px;
+  }
+
+  .menu-surface--popout .menu-card__local-grid {
+    gap: 7px 20px;
+  }
+
+  .menu-surface--popout .menu-card__local-chart {
+    height: 46px;
+  }
+
+  .menu-surface--popout .menu-surface__footer-row {
+    padding-top: 3px;
+    padding-bottom: 3px;
+  }
 }
