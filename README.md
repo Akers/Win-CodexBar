@@ -31,6 +31,40 @@ The Windows port of [CodexBar](https://github.com/steipete/CodexBar) — a syste
 - Splits local Codex cost output into standard vs fast/priority buckets when local logs expose fast model naming.
 - Keeps the v0.28 provider work: Azure OpenAI deployment validation, T3 Chat quota tracking, Ollama API-key support, and hardened OpenAI/MiniMax parsing.
 
+## What's Different in This Fork
+
+This fork adds provider-specific improvements beyond the upstream Windows port, with the largest changes focused on **MiniMax China Mainland region** support:
+
+### MiniMax — CN Region API Usage
+
+- **API endpoint switched to `/v1/token_plan/remains`** — no longer requires `group_id`; authenticates purely with a Bearer API key. This endpoint returns token-plan balance directly and is more reliable than the old billing-history approach.
+- **Region-aware routing** — separates Global (`platform.minimax.io`) and China Mainland (`platform.minimaxi.com`) at every layer:
+  - API base URLs, browser-cookie domains, billing-history endpoints, and dashboard URLs are all region-scoped
+  - CN billing data is fetched from `www.minimaxi.com/account/amount` (distinct from the web console host)
+- **Browser cookie import for CN** — cookies can now be imported from `platform.minimaxi.com` for China-Mainland accounts, with proper parent-domain host-key extraction
+- **Regional domain mapping fixed** — the previous version had Global and CN domains swapped; this fork corrects the mapping so each region hits the right endpoints
+
+### Z.ai / BigModel
+
+- **China Mainland routing** — Z.ai provider routes CN users through the BigModel API automatically based on region setting
+- **Response parsing hardening** — added `usage` field alias and `percentage` field support for BigModel's API response format, which differs from the upstream Z.ai schema
+
+### Claude
+
+- **OAuth credential lookup fix** — resolved an issue where Claude OAuth credentials could fail to load on Windows
+- **Windows tray launch fix** — fixed startup race conditions affecting the tray icon on first launch
+
+### Browser Cookie Improvements
+
+- **Parent-domain host keys** — cookie extraction now includes parent-domain entries, fixing cases where browsers store cookies under `minimaxi.com` rather than `platform.minimaxi.com`
+- **Import diagnostics** — added detailed diagnostics for browser cookie imports to surface extraction issues
+
+### UI/UX Polish
+
+- Floatbar transparency fix on Windows
+- Settings credential button no longer wraps on narrow panes
+- Compact surface layout for smaller Windows screens
+
 ## Quick Start
 
 ```powershell
