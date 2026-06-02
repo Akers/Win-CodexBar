@@ -37,7 +37,10 @@ function rows(): ProviderSidebarRow[] {
 describe("ProvidersSidebar", () => {
   beforeEach(() => {
     vi.clearAllMocks();
-    tauriMocks.getLocaleStrings.mockResolvedValue(buildBundle());
+    tauriMocks.getLocaleStrings.mockResolvedValue(buildBundle({
+      ProviderSidebarSearch: "Search providers",
+      ProviderSidebarNoMatches: "No matching providers",
+    }));
     eventMocks.listen.mockResolvedValue(() => {});
   });
 
@@ -47,6 +50,8 @@ describe("ProvidersSidebar", () => {
         <ProvidersSidebar
           providers={rows()}
           selectedId="codex"
+          searchText=""
+          onSearchTextChange={vi.fn()}
           onSelect={vi.fn()}
           onReorder={vi.fn()}
           onToggleEnabled={vi.fn()}
@@ -61,5 +66,24 @@ describe("ProvidersSidebar", () => {
       (node) => node.textContent,
     );
     expect(names).toEqual(TEST_PROVIDER_CATALOG.map(([, displayName]) => displayName));
+  });
+
+  it("renders provider search and empty matches state", async () => {
+    render(
+      <LocaleProvider>
+        <ProvidersSidebar
+          providers={[]}
+          selectedId={null}
+          searchText="zzzz"
+          onSearchTextChange={vi.fn()}
+          onSelect={vi.fn()}
+          onReorder={vi.fn()}
+          onToggleEnabled={vi.fn()}
+        />
+      </LocaleProvider>,
+    );
+
+    expect(await screen.findByRole("searchbox", { name: "Search providers" })).toBeInTheDocument();
+    expect(screen.getByText("No matching providers")).toBeInTheDocument();
   });
 });

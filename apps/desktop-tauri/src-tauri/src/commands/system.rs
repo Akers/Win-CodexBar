@@ -51,6 +51,11 @@ pub(crate) fn validate_external_url(url: &str) -> Result<&str, String> {
     Ok(trimmed)
 }
 
+#[tauri::command]
+pub fn open_external_url(url: String) -> Result<(), String> {
+    open_url_in_browser(&url)
+}
+
 #[cfg(target_os = "windows")]
 fn windows_system_binary(name: &str) -> std::path::PathBuf {
     std::env::var_os("SystemRoot")
@@ -264,18 +269,32 @@ pub fn quit_app(app: tauri::AppHandle) {
 }
 
 fn dashboard_url_for_provider(provider_id: &str) -> Option<String> {
-    // Z.ai uses region-specific dashboard URLs
-    if provider_id == "zai" {
+    if provider_id == ProviderId::Zai.cli_name() {
         let settings = Settings::load();
         let region: codexbar::providers::zai::ZaiRegion =
             settings.api_region(ProviderId::Zai).into();
         return Some(region.dashboard_url().to_string());
     }
+    if provider_id == ProviderId::MiniMax.cli_name() {
+        let settings = Settings::load();
+        return Some(
+            codexbar::providers::MiniMaxProvider::dashboard_url_for_region(Some(
+                settings.api_region(ProviderId::MiniMax),
+            )),
+        );
+    }
 
-    codexbar::settings::get_api_key_providers()
+    if let Some(url) = codexbar::settings::get_api_key_providers()
         .into_iter()
         .find(|p| p.id.cli_name() == provider_id)
         .and_then(|p| p.dashboard_url.map(|s| s.to_string()))
+    {
+        return Some(url);
+    }
+
+    let id = ProviderId::from_cli_name(provider_id)?;
+    let provider = instantiate_provider(id);
+    provider.metadata().dashboard_url.map(|s| s.to_string())
 }
 
 fn status_page_url_for_provider(provider_id: &str) -> Option<String> {
@@ -384,4 +403,17 @@ async fn run_copilot_device_login(app: &tauri::AppHandle) -> Result<(), String> 
         serde_json::json!({ "providerId": "copilot" }),
     );
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn dashboard_url_resolves_from_codex_provider_metadata() {
+        assert_eq!(
+            dashboard_url_for_provider("codex").as_deref(),
+            Some("https://chatgpt.com/codex/settings/usage")
+        );
+    }
 }

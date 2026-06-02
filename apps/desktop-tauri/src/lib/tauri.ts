@@ -132,6 +132,10 @@ export function openReleasePage(): Promise<void> {
   return invoke<void>("open_release_page");
 }
 
+export function openExternalUrl(url: string): Promise<void> {
+  return invoke<void>("open_external_url", { url });
+}
+
 // ── Credential store bridge ──────────────────────────────────────────
 
 export function getApiKeys(): Promise<ApiKeyInfoBridge[]> {
@@ -305,6 +309,17 @@ export function setProviderCookieSource(providerId: string, source: string): Pro
 
 export function setProviderRegion(providerId: string, region: string): Promise<void> {
   return invoke<void>("set_provider_region", { providerId, region });
+}
+
+export function getProviderWorkspaceId(providerId: string): Promise<string | null> {
+  return invoke<string | null>("get_provider_workspace_id", { providerId });
+}
+
+export function setProviderWorkspaceId(
+  providerId: string,
+  workspaceId: string,
+): Promise<void> {
+  return invoke<void>("set_provider_workspace_id", { providerId, workspaceId });
 }
 
 // ── Phase 6d — credential detection ──────────────────────────────────

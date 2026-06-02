@@ -526,7 +526,7 @@ impl LocaleKey {
             LocaleKey::DetailPaceSlightlyBehind => "略落后",
             LocaleKey::DetailPaceBehind => "落后",
             LocaleKey::DetailPaceFarBehind => "远落后",
-            LocaleKey::DetailPaceRunsOutIn => "约 {} 小时后耗尽",
+            LocaleKey::DetailPaceRunsOutIn => "预计耗尽时间",
             LocaleKey::DetailPaceWillLastToReset => "足以支撑到重置",
             LocaleKey::DetailCostTitle => "费用",
             LocaleKey::DetailCostUsed => "已用",
@@ -553,6 +553,9 @@ impl LocaleKey {
             LocaleKey::BannerRetry => "重试",
 
             // Tauri desktop shell — providers sidebar (Phase 6a)
+            LocaleKey::ProviderSidebarSearch => "搜索提供商",
+            LocaleKey::ProviderSidebarClearSearch => "清除提供商搜索",
+            LocaleKey::ProviderSidebarNoMatches => "没有匹配的提供商",
             LocaleKey::ProviderSidebarReorderHint => "拖动以重新排序",
             LocaleKey::ProviderStatusOk => "已更新",
             LocaleKey::ProviderStatusStale => "已过期",

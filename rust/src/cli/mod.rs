@@ -12,6 +12,7 @@ pub mod account;
 pub mod autostart;
 pub mod config;
 pub mod cost;
+pub mod diagnose;
 pub mod serve;
 pub mod tty_runner;
 pub mod usage;
@@ -108,6 +109,9 @@ pub enum Commands {
 
     /// Print local token cost usage (Claude + Codex) without web/CLI access
     Cost(cost::CostArgs),
+
+    /// Export safe provider diagnostics as JSON
+    Diagnose(diagnose::DiagnoseArgs),
 
     /// Serve usage and cost JSON on 127.0.0.1
     Serve(serve::ServeArgs),

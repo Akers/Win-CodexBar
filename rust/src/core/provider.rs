@@ -449,6 +449,9 @@ pub struct FetchContext {
     /// API key for providers that require authentication
     pub api_key: Option<String>,
 
+    /// Optional provider workspace/project scope from persisted settings.
+    pub workspace_id: Option<String>,
+
     /// API region for providers with multiple endpoints (e.g., "global", "china")
     pub api_region: Option<String>,
 }
@@ -462,6 +465,7 @@ impl Default for FetchContext {
             verbose: false,
             manual_cookie_header: None,
             api_key: None,
+            workspace_id: None,
             api_region: None,
         }
     }

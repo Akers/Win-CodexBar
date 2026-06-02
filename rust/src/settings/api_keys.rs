@@ -272,9 +272,11 @@ pub fn get_api_key_providers() -> Vec<ProviderConfigInfo> {
             id: ProviderId::Bedrock,
             name: "AWS Bedrock",
             requires_api_key: true,
-            api_key_env_var: Some("AWS_ACCESS_KEY_ID:AWS_SECRET_ACCESS_KEY[:AWS_SESSION_TOKEN]"),
+            api_key_env_var: Some(
+                "AWS_ACCESS_KEY_ID:AWS_SECRET_ACCESS_KEY[:AWS_SESSION_TOKEN] or AWS_PROFILE",
+            ),
             api_key_help: Some(
-                "Paste access_key:secret_key[:session_token], JSON credentials, or use AWS env vars.",
+                "Paste access_key:secret_key[:session_token], JSON credentials, profile:name, or use AWS env vars/AWS CLI profiles.",
             ),
             config_file_path: None,
             dashboard_url: Some("https://console.aws.amazon.com/bedrock"),

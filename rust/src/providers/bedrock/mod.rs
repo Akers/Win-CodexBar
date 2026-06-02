@@ -58,7 +58,19 @@ impl BedrockProvider {
             return None;
         }
 
+        if raw
+            .strip_prefix("profile:")
+            .or_else(|| raw.strip_prefix("aws-profile:"))
+            .map(str::trim)
+            .is_some_and(|profile| !profile.is_empty())
+        {
+            return None;
+        }
+
         if let Ok(json) = serde_json::from_str::<Value>(raw) {
+            if json_profile_name(&json).is_some() {
+                return None;
+            }
             let access_key_id = json
                 .get("access_key_id")
                 .or_else(|| json.get("accessKeyId"))
@@ -105,6 +117,26 @@ impl BedrockProvider {
         None
     }
 
+    fn profile_from_context(api_key: Option<&str>) -> Option<String> {
+        let raw = api_key?.trim();
+        if raw.is_empty() {
+            return None;
+        }
+
+        if let Some(profile) = raw
+            .strip_prefix("profile:")
+            .or_else(|| raw.strip_prefix("aws-profile:"))
+            .map(str::trim)
+            .filter(|profile| !profile.is_empty())
+        {
+            return Some(profile.to_string());
+        }
+
+        serde_json::from_str::<Value>(raw)
+            .ok()
+            .and_then(|json| json_profile_name(&json))
+    }
+
     fn credentials_from_env() -> Result<AwsCredentials, ProviderError> {
         let access_key_id = cleaned_env("AWS_ACCESS_KEY_ID").ok_or_else(|| {
             ProviderError::NotInstalled(
@@ -124,6 +156,60 @@ impl BedrockProvider {
             secret_access_key,
             session_token: cleaned_env("AWS_SESSION_TOKEN"),
         })
+    }
+
+    fn profile_from_env() -> Option<String> {
+        let mode = cleaned_env("CODEXBAR_BEDROCK_AUTH_MODE").map(|mode| mode.to_ascii_lowercase());
+        let profile = cleaned_env("AWS_PROFILE");
+        let has_static_keys = cleaned_env("AWS_ACCESS_KEY_ID").is_some()
+            && cleaned_env("AWS_SECRET_ACCESS_KEY").is_some();
+
+        if mode.as_deref() == Some("profile") {
+            return profile;
+        }
+
+        if profile.is_some() && !has_static_keys {
+            return profile;
+        }
+
+        None
+    }
+
+    fn credentials_from_profile(profile: &str) -> Result<AwsCredentials, ProviderError> {
+        let aws = aws_cli_path()?;
+        let output = std::process::Command::new(&aws)
+            .args([
+                "configure",
+                "export-credentials",
+                "--profile",
+                profile,
+                "--format",
+                "process",
+            ])
+            .env_remove("AWS_PROFILE")
+            .output()
+            .map_err(|e| ProviderError::Other(format!("Failed to run AWS CLI: {e}")))?;
+
+        if !output.status.success() {
+            let stderr = String::from_utf8_lossy(&output.stderr);
+            return Err(map_aws_profile_error(profile, &stderr));
+        }
+
+        parse_aws_profile_credentials(&output.stdout)
+    }
+
+    fn resolve_credentials(ctx: &FetchContext) -> Result<AwsCredentials, ProviderError> {
+        if let Some(credentials) = Self::credentials_from_context(ctx.api_key.as_deref()) {
+            return Ok(credentials);
+        }
+
+        if let Some(profile) =
+            Self::profile_from_context(ctx.api_key.as_deref()).or_else(Self::profile_from_env)
+        {
+            return Self::credentials_from_profile(&profile);
+        }
+
+        Self::credentials_from_env()
     }
 
     fn monthly_budget() -> Option<f64> {
@@ -218,12 +304,7 @@ impl BedrockProvider {
         &self,
         ctx: &FetchContext,
     ) -> Result<ProviderFetchResult, ProviderError> {
-        let credentials =
-            if let Some(credentials) = Self::credentials_from_context(ctx.api_key.as_deref()) {
-                credentials
-            } else {
-                Self::credentials_from_env()?
-            };
+        let credentials = Self::resolve_credentials(ctx)?;
         let budget = Self::monthly_budget();
         let spend = self.fetch_monthly_spend(&credentials).await?;
         let resets_at = end_of_current_month();
@@ -359,6 +440,73 @@ fn cleaned_env(key: &str) -> Option<String> {
                 .to_string()
         })
         .filter(|value| !value.is_empty())
+}
+
+fn json_profile_name(json: &Value) -> Option<String> {
+    json.get("profile")
+        .or_else(|| json.get("aws_profile"))
+        .or_else(|| json.get("AWS_PROFILE"))
+        .and_then(|v| v.as_str())
+        .map(str::trim)
+        .filter(|v| !v.is_empty())
+        .map(str::to_string)
+}
+
+fn aws_cli_path() -> Result<String, ProviderError> {
+    Ok(cleaned_env("CODEXBAR_AWS_CLI_PATH")
+        .or_else(|| cleaned_env("AWS_CLI_PATH"))
+        .unwrap_or_else(|| "aws".to_string()))
+}
+
+fn map_aws_profile_error(profile: &str, stderr: &str) -> ProviderError {
+    let lower = stderr.to_ascii_lowercase();
+    if lower.contains("sso login")
+        || lower.contains("expired")
+        || lower.contains("token has expired")
+        || lower.contains("session")
+    {
+        return ProviderError::AuthRequired;
+    }
+
+    let message = sanitized_body(stderr);
+    ProviderError::Other(format!(
+        "AWS CLI could not export credentials for profile `{profile}`: {message}"
+    ))
+}
+
+fn parse_aws_profile_credentials(stdout: &[u8]) -> Result<AwsCredentials, ProviderError> {
+    let json: Value = serde_json::from_slice(stdout).map_err(|e| {
+        ProviderError::Parse(format!("Failed to parse AWS CLI credentials output: {e}"))
+    })?;
+
+    let access_key_id = json
+        .get("AccessKeyId")
+        .and_then(|v| v.as_str())
+        .map(str::trim)
+        .filter(|v| !v.is_empty())
+        .ok_or_else(|| {
+            ProviderError::Parse("AWS CLI credentials output missing AccessKeyId".to_string())
+        })?;
+    let secret_access_key = json
+        .get("SecretAccessKey")
+        .and_then(|v| v.as_str())
+        .map(str::trim)
+        .filter(|v| !v.is_empty())
+        .ok_or_else(|| {
+            ProviderError::Parse("AWS CLI credentials output missing SecretAccessKey".to_string())
+        })?;
+    let session_token = json
+        .get("SessionToken")
+        .and_then(|v| v.as_str())
+        .map(str::trim)
+        .filter(|v| !v.is_empty())
+        .map(str::to_string);
+
+    Ok(AwsCredentials {
+        access_key_id: access_key_id.to_string(),
+        secret_access_key: secret_access_key.to_string(),
+        session_token,
+    })
 }
 
 fn current_month_range() -> (String, String) {
@@ -572,6 +720,44 @@ mod tests {
                 .expect("credentials");
 
         assert_eq!(credentials.access_key_id, "AKIAEXAMPLE");
+        assert_eq!(credentials.secret_access_key, "secret");
+        assert_eq!(credentials.session_token.as_deref(), Some("session"));
+    }
+
+    #[test]
+    fn parses_profile_from_context_prefix() {
+        assert_eq!(
+            BedrockProvider::profile_from_context(Some("profile:production")).as_deref(),
+            Some("production")
+        );
+        assert!(BedrockProvider::credentials_from_context(Some("profile:production")).is_none());
+    }
+
+    #[test]
+    fn parses_profile_from_context_json() {
+        assert_eq!(
+            BedrockProvider::profile_from_context(Some(r#"{"aws_profile":"sso-dev"}"#)).as_deref(),
+            Some("sso-dev")
+        );
+        assert!(
+            BedrockProvider::credentials_from_context(Some(r#"{"aws_profile":"sso-dev"}"#))
+                .is_none()
+        );
+    }
+
+    #[test]
+    fn parses_aws_cli_export_credentials_output() {
+        let credentials = parse_aws_profile_credentials(
+            br#"{
+                "Version": 1,
+                "AccessKeyId": "ASIAEXAMPLE",
+                "SecretAccessKey": "secret",
+                "SessionToken": "session"
+            }"#,
+        )
+        .expect("aws profile credentials");
+
+        assert_eq!(credentials.access_key_id, "ASIAEXAMPLE");
         assert_eq!(credentials.secret_access_key, "secret");
         assert_eq!(credentials.session_token.as_deref(), Some("session"));
     }

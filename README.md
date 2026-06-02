@@ -1,35 +1,29 @@
 # Win-CodexBar
 
-[简体中文说明](./README.zh-CN.md)
+[Simplified Chinese](./README.zh-CN.md)
 
-The Windows port of [CodexBar](https://github.com/steipete/CodexBar) — a system tray app that keeps your AI coding-tool usage limits visible at a glance.
+Win-CodexBar is a Windows system-tray app for keeping AI coding-tool usage visible without opening a dozen dashboards. It ports the spirit of [CodexBar](https://github.com/steipete/CodexBar) to a Tauri + React desktop shell backed by shared Rust provider logic.
 
-> Built with **Tauri + React** on a shared **Rust** backend. The original CodexBar is a macOS Swift app by [Peter Steinberger](https://github.com/steipete).
+<table>
+  <tr>
+    <td width="36%" align="center">
+      <img src="extra-docs/images/tray-panel.png" alt="Win-CodexBar tray panel showing provider usage cards"/>
+    </td>
+    <td width="64%" align="center">
+      <img src="extra-docs/images/settings-providers.png" alt="Win-CodexBar Providers settings page"/>
+    </td>
+  </tr>
+</table>
 
-<p align="center">
-  <img src="extra-docs/images/tray-panel.png" width="280" alt="Tray panel showing provider grid and Codex usage"/>
-  &nbsp;&nbsp;
-  <img src="extra-docs/images/settings-providers.png" width="480" alt="Settings — Providers tab"/>
-</p>
+## Highlights
 
-## Features
-
-- **49 AI providers** — Codex, Claude, Cursor, Factory, Gemini, Copilot, Antigravity, z.ai, MiniMax, Kiro, Vertex AI, Augment, OpenCode, Kimi, Kimi K2, Amp, Warp, Ollama, Azure OpenAI, T3 Chat, OpenRouter, Synthetic, JetBrains AI, Alibaba, Alibaba Token Plan, NanoGPT, Infini, Perplexity, Abacus AI, Mistral, OpenCode Go, Kilo, AWS Bedrock, Codebuff, DeepSeek, Windsurf, Manus, Xiaomi MiMo, Doubao, Command Code, Crof, StepFun, Venice, OpenAI, Grok, ElevenLabs, Deepgram, Groq, LLM Proxy
-- **System tray icon** — dynamic two-bar meter showing session + weekly usage
-- **Floating Bar** — optional always-on-top transparent capacity strip with orientation, opacity, and click-through controls
-- **Browser cookie import** — Chrome, Edge, Brave, Firefox, with browser access kept opt-in
-- **Per-provider credentials** — API keys, cookies, and OAuth all managed from the provider detail pane
-- **Credential hardening** — local secret-bearing stores are protected with Windows DPAPI on save
-- **Windows release packaging** — Inno Setup installer, standalone portable exe, WebView2 runtime bootstrap, VC++ runtime bootstrap, and SHA-256 checksum files
-- **CLI** — `codexbar usage`, `codexbar cost`, `codexbar config`, and loopback `codexbar serve` for scripting and local integrations
-- **WSL support** — CLI works out of the box; desktop shell via WSLg
-
-## What's New in v0.29.0
-
-- Adds Alibaba Token Plan tracking for Bailian token-plan credits with protected cookie-header accounts and browser-cookie support.
-- Shows OpenCode and OpenCode Go renewal dates as a separate **Renews** usage window when the provider exposes `renewAt` / `renew_at`.
-- Splits local Codex cost output into standard vs fast/priority buckets when local logs expose fast model naming.
-- Keeps the v0.28 provider work: Azure OpenAI deployment validation, T3 Chat quota tracking, Ollama API-key support, and hardened OpenAI/MiniMax parsing.
+- **49 providers** including Codex, Claude, Copilot, OpenRouter, Cursor, Gemini, DeepSeek, MiniMax, Kiro, Antigravity, Groq, and more.
+- **Tray-first workflow** with a compact provider grid, usage cards, refresh action, settings shortcut, and quit control.
+- **Provider settings** for source selection, credentials, cookie import, token accounts, API keys, regions, and tray-display preferences.
+- **Windows credential protection** for app-managed API keys, manual cookies, and token accounts, using user-scoped DPAPI where available.
+- **Browser cookie import** for Chrome, Edge, Brave, and Firefox, kept opt-in per provider.
+- **Local CLI** for scripting usage, cost, config, diagnostics, and loopback integrations.
+- **Installer + portable builds** with WebView2 runtime bootstrap, VC++ runtime bootstrap, and SHA-256 checksum files.
 
 ## What's Different in This Fork
 
@@ -65,23 +59,7 @@ This fork adds provider-specific improvements beyond the upstream Windows port, 
 - Settings credential button no longer wraps on narrow panes
 - Compact surface layout for smaller Windows screens
 
-## Quick Start
-
-```powershell
-# Prerequisites: Node.js + pnpm — Rust and MinGW are installed automatically
-git clone https://github.com/Finesssee/Win-CodexBar.git
-cd Win-CodexBar
-.\dev.ps1
-```
-
-The script installs Rust/MinGW if needed, builds the Tauri desktop shell, and launches the app.
-
-```powershell
-.\dev.ps1 -Release          # optimised build
-.\dev.ps1 -SkipBuild        # relaunch last build
-```
-
-## Download
+## Install
 
 Install with Windows Package Manager:
 
@@ -89,68 +67,44 @@ Install with Windows Package Manager:
 winget install Finesssee.Win-CodexBar
 ```
 
-Winget distribution is approved through [microsoft/winget-pkgs](https://github.com/microsoft/winget-pkgs/tree/master/manifests/f/Finesssee/Win-CodexBar). New releases may take a little time to appear in Winget after the GitHub release is published because each version is pinned to its own installer URL and SHA-256 hash.
+Or download the latest installer/portable build from [GitHub Releases](https://github.com/Finesssee/Win-CodexBar/releases).
 
-You can also grab the latest build from [GitHub Releases](https://github.com/Finesssee/Win-CodexBar/releases).
+- Installer: `CodexBar-<version>-Setup.exe`
+- Portable: `CodexBar-<version>-portable.exe`
+- Checksums: each release includes `.sha256` files
 
-- **Installer**: `CodexBar-<version>-Setup.exe`
-- **Portable**: `CodexBar-<version>-portable.exe`
-- **Checksums**: each release includes `.sha256` files for manual verification
-
-The installer includes the desktop app, Microsoft's Evergreen WebView2 bootstrapper, app icon, Start Menu shortcut, uninstall metadata, and the Visual C++ runtime bootstrap needed on clean Windows machines. The portable exe is the same desktop app without installer integration; release builds statically link the WebView2 loader, so portable users only need the Microsoft Edge WebView2 Runtime installed on the machine.
-
-## Fast Windows Release Builds
-
-For local release builds on a Windows machine, use the cached release builder:
-
-```powershell
-.\scripts\windows-release-build.ps1 -Ref v0.29.0
-```
-
-Automated Windows release builds now run through CircleCI hosted Windows instead of GitHub Actions or AWS EC2. Cloudflare R2 can mirror verified artifacts after the Windows smoke install passes. See [docs/release/ci-cd.md](docs/release/ci-cd.md).
-
-The script keeps a clean managed checkout under `C:\code\Win-CodexBar-release\source`, stores Rust build output in `C:\code\Win-CodexBar-release\cache\cargo-target`, stores pnpm packages in `C:\code\Win-CodexBar-release\cache\pnpm-store`, and reuses signed WebView2/VC++ bootstrapper downloads. It still builds the real release binary, verifies Microsoft signatures for installer dependencies, packages with Inno Setup, and writes the same four GitHub release assets under `C:\code\Win-CodexBar-release\assets`.
-
-Useful release flags:
-
-```powershell
-.\scripts\windows-release-build.ps1 -Ref v0.29.0 -WarmCacheOnly
-.\scripts\windows-release-build.ps1 -Ref v0.29.0 -WarmCliCache
-.\scripts\windows-release-build.ps1 -Ref v0.29.0 -SmokeInstall
-.\scripts\windows-release-build.ps1 -Ref v0.29.0 -UploadRelease v0.29.0
-.\scripts\release-doctor.ps1 -Version 0.29.0
-```
-
-GitHub Actions are manual best-effort only for this project. CircleCI hosted Windows is the primary automated release path for installer and portable artifacts.
+Winget distribution is approved through [microsoft/winget-pkgs](https://github.com/microsoft/winget-pkgs/tree/master/manifests/f/Finesssee/Win-CodexBar). New versions can take a little time to appear because every Winget update is pinned to a specific release URL and installer hash.
 
 ## First Run
 
-1. Launch CodexBar — it sits in the system tray
-2. Click the tray icon to open the usage panel
-3. Open **Settings → Providers**, enable the services you use
-4. For cookie-based providers, click the provider and use **Browser Cookies → Import**
-5. For Claude, browser cookies/sessionKey are preferred because they match the settings-page usage numbers; OAuth and CLI stay as fallbacks
-6. For CLI-based providers (`codex`, `gemini`), make sure you're logged in
+1. Launch **CodexBar** from the Start Menu or portable executable.
+2. Click the tray icon to open the usage panel.
+3. Open **Settings -> Providers**.
+4. Enable the providers you use.
+5. Add the matching credential type: OAuth/device login, API key, browser cookies, local CLI login, or token account.
 
-## CLI
+For Claude, browser cookies/sessionKey are preferred because they match Claude's settings-page usage. OAuth and CLI stay available as fallbacks. For CLI-based providers such as Codex and Gemini, sign in with the provider CLI first.
 
-```bash
-codexbar usage -p claude          # single provider
-codexbar usage -p all             # all enabled providers
-codexbar cost  -p codex           # local cost from JSONL logs
-```
+## Latest Release
 
-## Providers
+**v0.32.4** fixes OpenRouter credits fetching by using the canonical `/api/v1/credits` endpoint instead of the broken `/api/v1/auth/credits` path. It also aligns OpenRouter key introspection with `/api/v1/key` and adds regression tests for both URL paths.
+
+See the full history in [CHANGELOG.md](CHANGELOG.md).
+
+## Supported Providers
+
+<details>
+<summary>Provider matrix</summary>
 
 | Provider | Auth | Tracks |
-|----------|------|--------|
+|---|---|---|
 | Codex | OAuth / CLI | Session, Weekly, Credits |
 | Claude | Cookies / OAuth fallback / CLI fallback | Session (5h), Weekly |
 | Cursor | Cookies | Plan, Usage, Billing |
 | Factory | Cookies | Usage |
 | Gemini | gcloud OAuth | Quota |
 | Copilot | GitHub Device Flow / gh CLI / legacy token | Plan usage, Chat |
-| Antigravity | Cookies / LSP | Usage |
+| Antigravity | Local LSP | Usage, Per-model quotas |
 | z.ai | API Token | Quota |
 | MiniMax | API / Cookies | Usage, Billing Summary |
 | Kiro | Cookies / CLI | Monthly Credits, Overage |
@@ -161,13 +115,13 @@ codexbar cost  -p codex           # local cost from JSONL logs
 | Kimi K2 | API Key | Credits |
 | Amp | Cookies | Usage |
 | Warp | Local Config | Usage |
-| Ollama | Cookies / API Key | Usage, Cloud Models |
+| Ollama | Cookies / API Key | Usage, Cloud Models, Pace windows |
 | Azure OpenAI | API Key | Deployment |
 | T3 Chat | Cookies / cURL | Base, Overage |
 | OpenRouter | API Key | Credits |
 | JetBrains AI | Local Config | Usage |
 | Alibaba | Cookies | Usage |
-| Alibaba Token Plan | Cookies | Token Plan Credits |
+| Alibaba Token Plan | Cookies | Token Plan Credits, Reset date |
 | NanoGPT | API Key | Credits |
 | Infini | API Key | Session, Weekly, Quota |
 | Perplexity | Cookies | Credits, Plan |
@@ -176,48 +130,81 @@ codexbar cost  -p codex           # local cost from JSONL logs
 | OpenCode Go | Cookies | Usage, Zen Balance |
 | Kilo | API Key / CLI | Usage |
 | Codebuff | API Key / Local Config | Credits, Weekly |
-| DeepSeek | API Key | Balance |
+| DeepSeek | API Key | Balance, Usage summaries, Cost |
 | Windsurf | Local Cache | Daily, Weekly |
 | Manus | Cookies | Credits, Refresh Credits |
 | Xiaomi MiMo | Cookies | Balance, Token Plan |
 | Doubao | API Key | Request Limits |
 | Command Code | Cookies | Monthly Credits, Purchased Credits |
 | Crof | API Key | Credits, Request Quota |
-| StepFun | Oasis Token | 5h, Weekly |
+| StepFun | Oasis Token | 5h, Weekly, Token refresh |
 | Venice | API Key | USD / DIEM Balance |
-| OpenAI | Admin API / API Key | Usage, Requests, Credit Balance |
+| OpenAI | Admin API / API Key | Usage, Requests, Project-scoped cost, Credit Balance |
 | Grok | Cookies / auth.json | Billing |
 | ElevenLabs | API Key | Subscription Credits, Voice Slots |
 | Deepgram | API Key | Project Usage |
 | Groq | API Key | Enterprise Metrics |
 | LLM Proxy | API Key | Quota Stats |
 
+</details>
+
+## Build From Source
+
+```powershell
+# Prerequisites: Node.js + pnpm. Rust and MinGW are installed by the script when needed.
+git clone https://github.com/Finesssee/Win-CodexBar.git
+cd Win-CodexBar
+.\dev.ps1
+```
+
+Useful dev flags:
+
+```powershell
+.\dev.ps1 -Release      # optimized build
+.\dev.ps1 -SkipBuild    # relaunch the last build
+```
+
+CLI examples:
+
+```bash
+codexbar usage -p claude
+codexbar usage -p all
+codexbar cost -p codex
+```
+
+## Release Builds
+
+For local Windows release builds, use the cached release builder:
+
+```powershell
+.\scripts\windows-release-build.ps1 -Ref v0.32.4 -SmokeInstall
+```
+
+The script builds the real Tauri release binary, verifies signed installer dependencies, packages with Inno Setup, writes installer/portable assets, writes SHA-256 sidecars, and can run a silent install/uninstall smoke test.
+
+More release automation notes live in [docs/release/ci-cd.md](docs/release/ci-cd.md).
+
 ## Privacy
 
-- **On-device only** — no data sent anywhere except provider APIs
-- **No disk scanning** — only reads known config paths and browser cookies
-- **Opt-in cookies** — extraction only runs for providers you enable
-- **Protected credential stores** — app-managed API keys, manual cookies, and token accounts are written through the secure-file layer; on Windows this uses user-scoped DPAPI where available
-- **Safe diagnostics** — diagnostic snapshots expose provider/source/status metadata only, never raw cookies, API keys, bearer tokens, or OAuth values
-- **Verified updates** — automatic installer downloads require a GitHub SHA-256 digest and the installer is re-verified immediately before apply
+- **On-device by default**: provider data is read from known local paths or provider APIs you configure.
+- **Opt-in cookies**: browser-cookie extraction only runs for providers you enable.
+- **Protected secrets**: API keys, manual cookies, and token accounts use the secure-file layer; Windows uses user-scoped DPAPI where available.
+- **Safe diagnostics**: diagnostics expose provider/source/status metadata only, never raw cookies, API keys, bearer tokens, or OAuth values.
+- **Verified updates**: installer downloads require a GitHub SHA-256 digest and are re-verified immediately before apply.
 
-## More Docs
+## Docs
 
 | Topic | Link |
-|-------|------|
+|---|---|
 | Building from source | [extra-docs/BUILDING.md](extra-docs/BUILDING.md) |
-| WSL setup & auth tips | [extra-docs/WSL.md](extra-docs/WSL.md) |
+| WSL setup and auth tips | [extra-docs/WSL.md](extra-docs/WSL.md) |
 | Browser cookie details | [extra-docs/COOKIES.md](extra-docs/COOKIES.md) |
 
 ## Credits
 
-- **Original CodexBar**: [steipete/CodexBar](https://github.com/steipete/CodexBar) by Peter Steinberger
-- **Inspired by**: [ccusage](https://github.com/ryoppippi/ccusage) for cost tracking
+- Original macOS app: [steipete/CodexBar](https://github.com/steipete/CodexBar) by Peter Steinberger
+- Inspired by [ccusage](https://github.com/ryoppippi/ccusage) for cost tracking
 
 ## License
 
-MIT — same as the original CodexBar.
-
----
-
-*For the macOS version, visit [steipete/CodexBar](https://github.com/steipete/CodexBar).*
+MIT, same as the original CodexBar.

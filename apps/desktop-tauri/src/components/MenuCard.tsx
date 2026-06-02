@@ -48,6 +48,7 @@ interface MenuCardProps {
   resetTimeRelative: boolean;
   showAsUsed?: boolean;
   compactMetrics?: boolean;
+  onLayoutChange?: () => void;
 }
 
 function maskEmail(email: string): string {
@@ -308,7 +309,8 @@ function MetricRow({
  *        – (Divider) Pace group (Tauri-only addition; placed last)
  *        – (Divider) Charts group (Tauri-only addition; placed last)
  *
- * Padding: horizontal 16, vertical 2 (matches upstream UsageMenuCardView).
+ * Padding: upstream v0.32.2 uses wider horizontal card padding and slightly
+ * taller header/content vertical padding so account/plan rows can breathe.
  */
 export default function MenuCard({
   provider,
@@ -316,6 +318,7 @@ export default function MenuCard({
   resetTimeRelative,
   showAsUsed = false,
   compactMetrics = false,
+  onLayoutChange,
 }: MenuCardProps) {
   const { t } = useLocale();
   const [chartData, setChartData] = useState<ProviderChartData | null>(null);
@@ -337,7 +340,10 @@ export default function MenuCard({
       provider.accountEmail ?? undefined,
     )
       .then((data) => {
-        if (!cancelled) setChartData(data);
+        if (!cancelled) {
+          setChartData(data);
+          requestAnimationFrame(() => onLayoutChange?.());
+        }
       })
       .catch(() => {
         /* chart data is best-effort */
@@ -345,7 +351,7 @@ export default function MenuCard({
     return () => {
       cancelled = true;
     };
-  }, [provider.providerId, provider.accountEmail]);
+  }, [provider.providerId, provider.accountEmail, onLayoutChange]);
 
   const email = provider.accountEmail
     ? hideEmail
@@ -388,9 +394,16 @@ export default function MenuCard({
   const hasPace = !!provider.pace;
   const hasDetails =
     !provider.error && (hasMetrics || hasCost || hasPace || hasCharts || !!localUsage);
+  const cardClassName = [
+    "menu-card",
+    provider.error ? "menu-card--error" : null,
+    hasDetails ? "menu-card--with-details" : "menu-card--header-only",
+  ]
+    .filter(Boolean)
+    .join(" ");
 
   return (
-    <article className={`menu-card${provider.error ? " menu-card--error" : ""}`}>
+    <article className={cardClassName}>
       <header className="menu-card__header">
         <div className="menu-card__title-row">
           <div className="menu-card__name-group">

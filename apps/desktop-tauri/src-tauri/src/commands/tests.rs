@@ -2,7 +2,8 @@ use std::collections::HashMap;
 
 use super::{
     ProviderSummary, ProviderUsageSnapshot, apply_provider_order, bridge_commands, bridge_events,
-    provider_cookie_source_lookup, provider_region_lookup, validate_surface_target,
+    provider_cookie_source_lookup, provider_region_lookup, validate_external_url,
+    validate_surface_target,
 };
 use crate::surface::SurfaceMode;
 use crate::surface_target::SurfaceTarget;
@@ -62,7 +63,32 @@ fn bootstrap_contract_lists_current_surface_commands() {
     assert!(ids.contains(&"get_current_surface_mode"));
     assert!(ids.contains(&"get_current_surface_state"));
     assert!(ids.contains(&"get_app_info"));
+    assert!(ids.contains(&"open_external_url"));
     assert!(!ids.contains(&"get_proof_config"));
+}
+
+#[test]
+fn external_url_validation_allows_only_http_urls() {
+    assert_eq!(
+        validate_external_url(" https://github.com/Finesssee/Win-CodexBar ").unwrap(),
+        "https://github.com/Finesssee/Win-CodexBar"
+    );
+    assert_eq!(
+        validate_external_url("http://codexbar.app").unwrap(),
+        "http://codexbar.app"
+    );
+
+    for invalid in [
+        "",
+        "file:///etc/passwd",
+        "javascript:alert(1)",
+        "https://bad\nhost",
+    ] {
+        assert!(
+            validate_external_url(invalid).is_err(),
+            "accepted invalid URL: {invalid:?}"
+        );
+    }
 }
 
 #[test]
@@ -227,6 +253,28 @@ fn provider_region_lookup_roundtrips_known_providers() {
 }
 
 #[test]
+fn minimax_region_lookup_normalizes_legacy_china_value() {
+    let mut s = Settings::default();
+    super::provider_region_set(&mut s, "minimax", "china".to_string()).unwrap();
+    assert_eq!(provider_region_lookup(&s, "minimax").as_deref(), Some("cn"));
+}
+
+#[test]
+fn minimax_cookie_domain_follows_selected_region() {
+    let mut s = Settings::default();
+    assert_eq!(
+        super::provider_cookie_domain(ProviderId::MiniMax, &s),
+        Some("platform.minimax.io")
+    );
+
+    s.set_api_region(ProviderId::MiniMax, "cn");
+    assert_eq!(
+        super::provider_cookie_domain(ProviderId::MiniMax, &s),
+        Some("platform.minimaxi.com")
+    );
+}
+
+#[test]
 fn provider_cookie_source_set_rejects_unknown_provider() {
     let mut s = Settings::default();
     let err = super::provider_cookie_source_set(&mut s, "nope", "x".into()).unwrap_err();
@@ -330,6 +378,25 @@ fn fetch_context_api_key_provider_uses_auto_without_cookie_import() {
     assert_eq!(ctx.source_mode, SourceMode::Auto);
     assert!(ctx.manual_cookie_header.is_none());
     assert_eq!(ctx.api_key.as_deref(), Some("sk-test"));
+}
+
+#[test]
+fn fetch_context_includes_minimax_region() {
+    let mut settings = Settings::default();
+    settings.set_api_region(ProviderId::MiniMax, "cn");
+    let cookies = ManualCookies::default();
+    let api_keys = ApiKeys::default();
+    let token_accounts = HashMap::new();
+
+    let ctx = super::build_fetch_context(
+        ProviderId::MiniMax,
+        &settings,
+        &cookies,
+        &api_keys,
+        &token_accounts,
+    );
+
+    assert_eq!(ctx.api_region.as_deref(), Some("cn"));
 }
 
 #[test]
@@ -648,6 +715,65 @@ fn provider_cache_upsert_replaces_existing_provider() {
 }
 
 #[test]
+fn claude_transient_auth_failure_preserves_first_last_good_snapshot() {
+    let metadata = instantiate_provider(ProviderId::Claude).metadata().clone();
+    let result = ProviderFetchResult {
+        usage: codexbar::core::UsageSnapshot::new(codexbar::core::RateWindow::new(42.0)),
+        cost: None,
+        source_label: "OAuth".to_string(),
+    };
+    let good = ProviderUsageSnapshot::from_fetch_result(ProviderId::Claude, &metadata, &result);
+    let error = ProviderUsageSnapshot::from_error(
+        ProviderId::Claude,
+        &metadata,
+        "Unauthorized".to_string(),
+    );
+    let mut state = crate::state::AppState::new();
+    state.provider_cache.push(good.clone());
+
+    let preserved = super::providers::preserve_last_good_transient_failure(
+        &mut state,
+        ProviderId::Claude,
+        error,
+    );
+
+    assert_eq!(preserved.error, None);
+    assert_eq!(preserved.primary.used_percent, 42.0);
+}
+
+#[test]
+fn claude_repeated_auth_failure_surfaces_error() {
+    let metadata = instantiate_provider(ProviderId::Claude).metadata().clone();
+    let result = ProviderFetchResult {
+        usage: codexbar::core::UsageSnapshot::new(codexbar::core::RateWindow::new(42.0)),
+        cost: None,
+        source_label: "OAuth".to_string(),
+    };
+    let good = ProviderUsageSnapshot::from_fetch_result(ProviderId::Claude, &metadata, &result);
+    let first_error = ProviderUsageSnapshot::from_error(
+        ProviderId::Claude,
+        &metadata,
+        "Unauthorized".to_string(),
+    );
+    let second_error = first_error.clone();
+    let mut state = crate::state::AppState::new();
+    state.provider_cache.push(good);
+
+    let _ = super::providers::preserve_last_good_transient_failure(
+        &mut state,
+        ProviderId::Claude,
+        first_error,
+    );
+    let surfaced = super::providers::preserve_last_good_transient_failure(
+        &mut state,
+        ProviderId::Claude,
+        second_error,
+    );
+
+    assert!(surfaced.error.is_some());
+}
+
+#[test]
 fn claude_error_message_removes_upstream_swift_cancellation() {
     let message = super::friendly_provider_error(
         ProviderId::Claude,
@@ -795,6 +921,21 @@ fn region_options_for_regional_provider() {
     let opts = super::region_options_for("alibaba");
     let values: Vec<_> = opts.iter().map(|o| o.value.as_str()).collect();
     assert_eq!(values, vec!["intl", "cn"]);
+}
+
+#[test]
+fn minimax_region_options_match_upstream_hosts() {
+    let opts = super::region_options_for("minimax");
+    let values: Vec<_> = opts.iter().map(|o| o.value.as_str()).collect();
+    let labels: Vec<_> = opts.iter().map(|o| o.label.as_str()).collect();
+    assert_eq!(values, vec!["global", "cn"]);
+    assert_eq!(
+        labels,
+        vec![
+            "Global (platform.minimax.io)",
+            "China mainland (platform.minimaxi.com)"
+        ]
+    );
 }
 
 #[test]

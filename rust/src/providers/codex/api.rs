@@ -2,13 +2,18 @@
 //!
 //! Uses OAuth tokens stored by the Codex CLI in ~/.codex/auth.json
 
-use crate::core::{CostSnapshot, ProviderError, RateWindow, UsageSnapshot};
+use crate::core::{CostSnapshot, NamedRateWindow, ProviderError, RateWindow, UsageSnapshot};
 use chrono::{DateTime, TimeZone, Utc};
 use serde::Deserialize;
 use std::path::PathBuf;
+use std::sync::{Mutex, OnceLock};
+use std::time::{Duration, Instant, SystemTime};
 
 const DEFAULT_BASE_URL: &str = "https://chatgpt.com/backend-api";
 const USAGE_PATH: &str = "/wham/usage";
+const CREDENTIAL_CACHE_TTL: Duration = Duration::from_secs(5);
+
+static CREDENTIAL_CACHE: OnceLock<Mutex<Option<CachedCodexCredentials>>> = OnceLock::new();
 
 /// Codex API client
 pub struct CodexApi {
@@ -85,14 +90,28 @@ impl CodexApi {
 
         if !auth_path.exists() {
             return Err(ProviderError::NotInstalled(
-                "Codex auth.json not found. Run 'codex' to log in.".to_string(),
+                "Codex auth.json not found. Run `codex login` in a terminal to sign in."
+                    .to_string(),
             ));
+        }
+
+        let modified = std::fs::metadata(&auth_path)
+            .ok()
+            .and_then(|metadata| metadata.modified().ok());
+        if let Some(cached) = Self::cached_credentials(&auth_path, modified) {
+            return Ok(cached);
         }
 
         let content = std::fs::read_to_string(&auth_path).map_err(|e| {
             ProviderError::Other(format!("Failed to read Codex credentials: {}", e))
         })?;
 
+        let credentials = Self::parse_credentials_json(&content)?;
+        Self::store_cached_credentials(auth_path, modified, credentials.clone());
+        Ok(credentials)
+    }
+
+    fn parse_credentials_json(content: &str) -> Result<CodexCredentials, ProviderError> {
         let json: serde_json::Value = serde_json::from_str(&content)
             .map_err(|e| ProviderError::Parse(format!("Invalid Codex credentials JSON: {}", e)))?;
 
@@ -102,7 +121,6 @@ impl CodexApi {
             if !trimmed.is_empty() {
                 return Ok(CodexCredentials {
                     access_token: trimmed.to_string(),
-                    refresh_token: None,
                     account_id: None,
                 });
             }
@@ -122,12 +140,6 @@ impl CodexApi {
             })?
             .to_string();
 
-        let refresh_token = tokens
-            .get("refresh_token")
-            .and_then(|v| v.as_str())
-            .filter(|s| !s.is_empty())
-            .map(|s| s.to_string());
-
         let account_id = tokens
             .get("account_id")
             .and_then(|v| v.as_str())
@@ -136,9 +148,42 @@ impl CodexApi {
 
         Ok(CodexCredentials {
             access_token,
-            refresh_token,
             account_id,
         })
+    }
+
+    fn credential_cache() -> &'static Mutex<Option<CachedCodexCredentials>> {
+        CREDENTIAL_CACHE.get_or_init(|| Mutex::new(None))
+    }
+
+    fn cached_credentials(
+        path: &std::path::Path,
+        modified: Option<SystemTime>,
+    ) -> Option<CodexCredentials> {
+        let guard = Self::credential_cache().lock().ok()?;
+        let cached = guard.as_ref()?;
+        if cached.path == path
+            && cached.modified == modified
+            && cached.loaded_at.elapsed() <= CREDENTIAL_CACHE_TTL
+        {
+            return Some(cached.credentials.clone());
+        }
+        None
+    }
+
+    fn store_cached_credentials(
+        path: PathBuf,
+        modified: Option<SystemTime>,
+        credentials: CodexCredentials,
+    ) {
+        if let Ok(mut guard) = Self::credential_cache().lock() {
+            *guard = Some(CachedCodexCredentials {
+                path,
+                modified,
+                loaded_at: Instant::now(),
+                credentials,
+            });
+        }
     }
 
     fn get_auth_path(&self) -> PathBuf {
@@ -229,6 +274,9 @@ impl CodexApi {
         if let Some(cr) = code_review {
             usage = usage.with_model_specific(cr);
         }
+        for extra in self.extract_additional_rate_limits(json) {
+            usage.extra_rate_windows.push(extra);
+        }
         if let Some(method) = login_method {
             usage = usage.with_login_method(method);
         }
@@ -291,13 +339,7 @@ impl CodexApi {
         let used_percent = window
             .get("used_percent")
             .or_else(|| window.get("usage_percent"))
-            .and_then(|v| v.as_f64())
-            .or_else(|| {
-                window
-                    .get("used_percent")
-                    .and_then(|v| v.as_i64())
-                    .map(|i| i as f64)
-            })
+            .and_then(json_f64)
             .unwrap_or(0.0);
 
         let window_minutes = window
@@ -316,6 +358,68 @@ impl CodexApi {
             reset_at,
             format_reset_countdown(reset_at),
         )
+    }
+
+    fn extract_additional_rate_limits(&self, json: &serde_json::Value) -> Vec<NamedRateWindow> {
+        json.get("additional_rate_limits")
+            .and_then(|v| v.as_array())
+            .into_iter()
+            .flatten()
+            .filter_map(|entry| self.parse_additional_rate_limit(entry))
+            .collect()
+    }
+
+    fn parse_additional_rate_limit(&self, entry: &serde_json::Value) -> Option<NamedRateWindow> {
+        let metered_feature = entry
+            .get("metered_feature")
+            .and_then(|v| v.as_str())
+            .map(str::trim)
+            .filter(|v| !v.is_empty());
+        let limit_name = entry
+            .get("limit_name")
+            .and_then(|v| v.as_str())
+            .map(str::trim)
+            .filter(|v| !v.is_empty());
+
+        let rate_limit = entry.get("rate_limit").unwrap_or(entry);
+        let primary = rate_limit.get("primary_window");
+        let secondary = rate_limit.get("secondary_window");
+        let window = primary.or(secondary)?;
+        if is_placeholder_window(window) {
+            return None;
+        }
+
+        let parsed = self.parse_window(window);
+        let feature = metered_feature.unwrap_or_default();
+        let limit = limit_name.unwrap_or_default();
+        let is_spark = feature.eq_ignore_ascii_case("codex_spark")
+            || feature.eq_ignore_ascii_case("spark")
+            || limit.to_ascii_lowercase().contains("spark");
+
+        if is_spark {
+            let is_weekly = secondary.is_some() && primary.is_none()
+                || parsed
+                    .window_minutes
+                    .is_some_and(|mins| mins >= 7 * 24 * 60);
+            let (id, title) = if is_weekly {
+                ("codex-spark-weekly", "Codex Spark Weekly")
+            } else {
+                ("codex-spark", "Codex Spark 5-hour")
+            };
+            return Some(NamedRateWindow::new(id, title, parsed));
+        }
+
+        let label = limit_name.or(metered_feature)?;
+        let slug = slugify(label);
+        if slug.is_empty() {
+            return None;
+        }
+
+        Some(NamedRateWindow::new(
+            format!("codex-{slug}"),
+            titleize_limit_label(label),
+            parsed,
+        ))
     }
 
     fn extract_credits(&self, json: &serde_json::Value) -> Option<CostSnapshot> {
@@ -449,10 +553,17 @@ impl Default for CodexApi {
 
 // --- Data structures ---
 
+#[derive(Clone)]
 struct CodexCredentials {
     access_token: String,
-    refresh_token: Option<String>,
     account_id: Option<String>,
+}
+
+struct CachedCodexCredentials {
+    path: PathBuf,
+    modified: Option<SystemTime>,
+    loaded_at: Instant,
+    credentials: CodexCredentials,
 }
 
 #[derive(Debug, Deserialize)]
@@ -498,6 +609,66 @@ impl CreditDetails {
 
 fn timestamp_to_datetime(timestamp: Option<i64>) -> Option<DateTime<Utc>> {
     timestamp.and_then(|ts| Utc.timestamp_opt(ts, 0).single())
+}
+
+fn json_f64(value: &serde_json::Value) -> Option<f64> {
+    value
+        .as_f64()
+        .or_else(|| value.as_i64().map(|value| value as f64))
+        .or_else(|| value.as_str()?.trim().parse::<f64>().ok())
+}
+
+fn is_placeholder_window(window: &serde_json::Value) -> bool {
+    let has_usage = window
+        .get("used_percent")
+        .or_else(|| window.get("usage_percent"))
+        .and_then(json_f64)
+        .is_some();
+    let has_duration = window
+        .get("limit_window_seconds")
+        .and_then(|v| v.as_i64().or_else(|| v.as_str()?.parse::<i64>().ok()))
+        .is_some();
+    let has_reset = window.get("reset_at").is_some();
+
+    !has_usage && !has_duration && !has_reset
+}
+
+fn slugify(label: &str) -> String {
+    let mut slug = String::new();
+    let mut previous_dash = false;
+
+    for ch in label.chars() {
+        if ch.is_ascii_alphanumeric() {
+            slug.push(ch.to_ascii_lowercase());
+            previous_dash = false;
+        } else if !previous_dash && !slug.is_empty() {
+            slug.push('-');
+            previous_dash = true;
+        }
+    }
+
+    while slug.ends_with('-') {
+        slug.pop();
+    }
+    slug
+}
+
+fn titleize_limit_label(label: &str) -> String {
+    label
+        .split(['_', '-', ' '])
+        .filter(|part| !part.is_empty())
+        .map(|part| {
+            let mut chars = part.chars();
+            match chars.next() {
+                Some(first) => first
+                    .to_uppercase()
+                    .chain(chars.flat_map(char::to_lowercase))
+                    .collect(),
+                None => String::new(),
+            }
+        })
+        .collect::<Vec<String>>()
+        .join(" ")
 }
 
 fn format_reset_countdown(reset_at: Option<DateTime<Utc>>) -> Option<String> {
@@ -582,5 +753,87 @@ fn capitalize(s: &str) -> String {
     match chars.next() {
         None => String::new(),
         Some(first) => first.to_uppercase().chain(chars).collect(),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use serde_json::json;
+
+    #[test]
+    fn parses_codex_credentials_without_retaining_refresh_token() {
+        let credentials = CodexApi::parse_credentials_json(
+            r#"{
+                "tokens": {
+                    "access_token": "access",
+                    "refresh_token": "refresh",
+                    "account_id": "acct_123"
+                }
+            }"#,
+        )
+        .expect("credentials");
+
+        assert_eq!(credentials.access_token, "access");
+        assert_eq!(credentials.account_id.as_deref(), Some("acct_123"));
+    }
+
+    #[test]
+    fn maps_codex_spark_additional_rate_limits() {
+        let api = CodexApi::new();
+        let (usage, _) = api
+            .build_result_from_json(&json!({
+                "plan_type": "pro",
+                "rate_limit": {
+                    "primary_window": { "used_percent": 20, "limit_window_seconds": 18000 },
+                    "secondary_window": { "used_percent": 40, "limit_window_seconds": 604800 }
+                },
+                "additional_rate_limits": [
+                    {
+                        "limit_name": "Codex Spark",
+                        "metered_feature": "codex_spark",
+                        "rate_limit": {
+                            "primary_window": { "used_percent": "17", "limit_window_seconds": 18000 }
+                        }
+                    },
+                    {
+                        "limit_name": "Codex Spark Weekly",
+                        "metered_feature": "codex_spark",
+                        "rate_limit": {
+                            "secondary_window": { "used_percent": 62, "limit_window_seconds": 604800 }
+                        }
+                    }
+                ]
+            }))
+            .expect("codex usage");
+
+        assert_eq!(usage.extra_rate_windows.len(), 2);
+        assert_eq!(usage.extra_rate_windows[0].id, "codex-spark");
+        assert_eq!(usage.extra_rate_windows[0].title, "Codex Spark 5-hour");
+        assert_eq!(usage.extra_rate_windows[0].window.used_percent, 17.0);
+        assert_eq!(usage.extra_rate_windows[1].id, "codex-spark-weekly");
+        assert_eq!(usage.extra_rate_windows[1].title, "Codex Spark Weekly");
+        assert_eq!(usage.extra_rate_windows[1].window.used_percent, 62.0);
+    }
+
+    #[test]
+    fn ignores_placeholder_additional_rate_limits() {
+        let api = CodexApi::new();
+        let (usage, _) = api
+            .build_result_from_json(&json!({
+                "rate_limit": {
+                    "primary_window": { "used_percent": 0, "limit_window_seconds": 18000 }
+                },
+                "additional_rate_limits": [
+                    {
+                        "limit_name": "placeholder",
+                        "metered_feature": "placeholder",
+                        "rate_limit": { "primary_window": {} }
+                    }
+                ]
+            }))
+            .expect("codex usage");
+
+        assert!(usage.extra_rate_windows.is_empty());
     }
 }

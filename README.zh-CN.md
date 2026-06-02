@@ -14,7 +14,7 @@
 
 ## 功能特性
 
-- **46 个 AI 服务商** — Codex、Claude、Cursor、Factory、Gemini、Copilot、Antigravity、z.ai、MiniMax、Kiro、Vertex AI、Augment、OpenCode、Kimi、Kimi K2、Amp、Warp、Ollama、OpenRouter、Synthetic、JetBrains AI、Alibaba、NanoGPT、Infini、Perplexity、Abacus AI、Mistral、OpenCode Go、Kilo、AWS Bedrock、Codebuff、DeepSeek、Windsurf、Manus、小米 MiMo、Doubao、Command Code、Crof、StepFun、Venice、OpenAI、Grok、ElevenLabs、Deepgram、Groq、LLM Proxy
+- **49 个 AI 服务商** — Codex、Claude、Cursor、Factory、Gemini、Copilot、Antigravity、z.ai、MiniMax、Kiro、Vertex AI、Augment、OpenCode、Kimi、Kimi K2、Amp、Warp、Ollama、Azure OpenAI、T3 Chat、OpenRouter、Synthetic、JetBrains AI、Alibaba、Alibaba Token Plan、NanoGPT、Infini、Perplexity、Abacus AI、Mistral、OpenCode Go、Kilo、AWS Bedrock、Codebuff、DeepSeek、Windsurf、Manus、小米 MiMo、Doubao、Command Code、Crof、StepFun、Venice、OpenAI、Grok、ElevenLabs、Deepgram、Groq、LLM Proxy
 - **系统托盘图标** — 动态双条进度显示会话与周用量
 - **Floating Bar** — 可选的置顶透明用量条，支持方向、透明度和点击穿透控制
 - **浏览器 Cookie 导入** — Chrome、Edge、Brave、Firefox（Windows DPAPI 解密）
@@ -24,12 +24,69 @@
 - **CLI** — `codexbar usage`、`codexbar cost`、`codexbar config` 和本机回环 `codexbar serve`，便于脚本化、本地集成和 CI
 - **WSL 支持** — CLI 开箱即用，桌面壳层通过 WSLg 运行
 
-## v0.27.1 更新内容
+## v0.32.2 更新内容
 
-- 补完整上游 CodexBar 0.27 的 Windows/Tauri 移植，不再只是 API Key 配额服务商子集。
-- 新增 Grok 支持，可通过浏览器 Cookie 或 `~/.grok/auth.json` 读取账单信息，并补齐设置页、图标和图表颜色。
-- 新增 Claude Admin API 用量、OpenAI Admin API 用量与余额回退、MiniMax 账单汇总、OpenCode Go Zen 余额，以及 Kiro 超额用量/费用解析。
-- 新增 `codexbar serve`，可在本机回环地址提供 `/health`、`/usage`、`/cost` JSON，并补齐上游兼容的 `--all-accounts` CLI 参数。
+- 将上游 CodexBar v0.32.2 的性能优化和托盘 UI 微调移植到 Win-CodexBar。
+- 本地 Codex token 成本扫描会先走轻量 JSONL 快速路径，大型 session 日志库扫描更快、内存占用更低。
+- 紧凑托盘卡片增加横向和纵向留白，账号与套餐行不再那么拥挤。
+- 增加当前 Codex token-count JSONL 形态的回归测试，覆盖 `last_token_usage`、`total_token_usage` 和旧版 `event_msg` payload。
+
+## v0.32.1 更新内容
+
+- 将上游 CodexBar v0.32.1 的稳定性修复移植到 Win-CodexBar。
+- 托盘面板打开后会短暂延后自动 provider 刷新，让 UI 先完成绘制并保持可点击。
+- Codex 凭据读取会复用短生命周期缓存，并避免在进程内保留未使用的 Codex refresh token。
+- Claude OAuth 用量读取保持只读，不接管 Claude Code 自己管理的凭据生命周期。
+
+## v0.32.0 更新内容
+
+- 将上游 CodexBar v0.32.0 的 provider 修复移植到 Win-CodexBar。
+- Providers 设置页新增搜索，可按服务商名称或 id 过滤大型 provider 列表，同时不破坏拖拽排序的完整顺序。
+- 更新 Augment CLI 解析，支持新版 `auggie account status` 输出，并保留旧格式兼容。
+- 加固 Ollama Web Cookie 获取：导入的 Cookie 只会附加到 HTTPS `ollama.com` 请求，不会在不安全重定向中继续携带。
+- 改进 Antigravity model quota 选择：image/lite/autocomplete/internal 行不会驱动主摘要条，但仍保留在详细 model 窗口中。
+- Claude 首次临时 auth/unauthorized 刷新失败时会保留上一次成功用量快照；连续失败仍会显示真实错误。
+
+## v0.31.1 更新内容
+
+- 修复 Antigravity 在 Windows 上无法获取用量的问题：当本地 language server 的 API 绑定到随机监听端口，而不是 `--extension_server_port` 附近端口时，现在也能正确发现。
+- 应用会优先检查 Antigravity language server 进程实际监听的端口，同时保留旧的启发式端口探测作为 fallback。
+
+## v0.31.0 更新内容
+
+- 将上游 CodexBar v0.31.0 的 provider 行为修复移植到 Win-CodexBar。
+- AWS Bedrock 现在支持通过命名 AWS CLI profile 获取用量，包括 AWS CLI 可解析的 SSO / assume-role profile。
+- 当 Codex 用量接口返回 Spark 专属限制时，会显示 Codex Spark 5 小时与每周 quota。
+- 隐藏 Claude 已废弃的 Design quota，同时保留其他 Claude 用量窗口。
+- 本地 Codex/Claude 图表扫描支持取消，连续刷新时会更快停止过期 JSONL 扫描。
+
+## v0.30.3 更新内容
+
+- 修复 DeepSeek 余额显示：仅有 CNY/RMB 余额的账号不再因为 USD 为 0 而显示 Exhausted。
+- 已在 Windows 上通过原生 Rust provider 测试验证 DeepSeek CNY fallback 回归用例。
+- 包含 v0.30.2 的 About 链接修复。
+
+## v0.30.2 更新内容
+
+- 修复 About 选项卡外部链接按钮，GitHub、Website、Original Project 和页脚项目链接现在会通过 Windows Tauri 壳层正确打开。
+- 已在真实 Windows 桌面中验证 About 选项卡链接流程。
+- 包含 v0.30.1 的 Codex 本地用量修复。
+
+## v0.30.1 更新内容
+
+- 修复当前 Codex session 日志格式下的本地 token 用量解析。
+- 修复本地 token 总数中 cached input tokens 被重复计入的问题。
+- Codex 本地成本扫描改为复用共享 JSONL 扫描器，保持托盘、图表和 CLI 路径一致。
+- 异步本地用量数据加载后会正确刷新托盘布局。
+- 包含 v0.30.0 的服务商更新。
+
+## v0.30.0 更新内容
+
+- DeepSeek 新增用量摘要：token 总量、请求数、Top model、分类明细，以及平台 API 暴露时的当月成本。
+- OpenAI Admin API 用量支持在服务商详情面板按可选 project ID 限定范围，默认仍为组织级用量。
+- Alibaba Token Plan 更新到当前 Bailian 订阅摘要 API，并扩展新的额度/重置字段解析。
+- StepFun Oasis 在存在 access/refresh 组合 token 时可刷新过期 token。
+- 托盘和设置 UI 显示更丰富的 Ollama pace windows 与 Antigravity per-model quota windows。
 
 ## 快速开始
 
@@ -67,10 +124,10 @@ Winget 分发已通过 [microsoft/winget-pkgs](https://github.com/microsoft/wing
 
 ## 快速 Windows 发布构建
 
-在 Windows 构建服务器上做本地发布构建时，使用缓存版构建脚本：
+在 Windows 机器上做本地发布构建时，使用缓存版构建脚本：
 
 ```powershell
-.\scripts\windows-release-build.ps1 -Ref v0.27.4
+.\scripts\windows-release-build.ps1 -Ref v0.32.2
 ```
 
 脚本会在 `C:\code\Win-CodexBar-release\source` 维护干净源码签出，在 `C:\code\Win-CodexBar-release\cache\cargo-target` 复用 Rust 构建输出，在 `C:\code\Win-CodexBar-release\cache\pnpm-store` 复用 pnpm 包，并复用已签名的 WebView2/VC++ 引导程序下载。它仍会构建真实 release 二进制、校验 Microsoft 签名、用 Inno Setup 打包，并在 `C:\code\Win-CodexBar-release\assets` 输出 GitHub Release 使用的四个资产。
@@ -78,11 +135,11 @@ Winget 分发已通过 [microsoft/winget-pkgs](https://github.com/microsoft/wing
 常用发布参数：
 
 ```powershell
-.\scripts\windows-release-build.ps1 -Ref v0.27.5 -WarmCacheOnly
-.\scripts\windows-release-build.ps1 -Ref v0.27.5 -WarmCliCache
-.\scripts\windows-release-build.ps1 -Ref v0.27.5 -SmokeInstall
-.\scripts\windows-release-build.ps1 -Ref v0.27.5 -UploadRelease v0.27.5
-.\scripts\release-doctor.ps1 -Version 0.27.5
+.\scripts\windows-release-build.ps1 -Ref v0.32.2 -WarmCacheOnly
+.\scripts\windows-release-build.ps1 -Ref v0.32.2 -WarmCliCache
+.\scripts\windows-release-build.ps1 -Ref v0.32.2 -SmokeInstall
+.\scripts\windows-release-build.ps1 -Ref v0.32.2 -UploadRelease v0.32.2
+.\scripts\release-doctor.ps1 -Version 0.32.2
 ```
 
 GitHub Actions 只作为辅助检查；安装包和便携版资产以 Windows 构建服务器脚本为主发布路径。

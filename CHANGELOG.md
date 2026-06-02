@@ -2,7 +2,59 @@
 
 ## Unreleased
 
+---
+
+## [Windows] 0.32.4 - 2026-06-02
+
 ### Fixed
+- Fix OpenRouter credits fetching by routing requests to the canonical `/api/v1/credits` endpoint instead of the broken `/api/v1/auth/credits` path.
+- Align OpenRouter key introspection with the upstream `/api/v1/key` endpoint and add regression coverage for both endpoint URLs.
+
+---
+
+## [Windows] 0.32.3 - 2026-06-01
+
+### Fixed
+- Detect modern Chrome/Edge `v20` App-Bound encrypted cookies during browser import so Codex/ChatGPT imports no longer misreport protected signed-in sessions as missing cookies.
+- Replace the outdated Chromium cookie-import guidance with a clearer manual-cookie or Firefox fallback when Windows browser encryption blocks direct import.
+
+---
+
+## [Windows] 0.31.1 - 2026-05-30
+
+### Fixed
+- Fix Antigravity usage on Windows when the local language server binds its API to a random listening port instead of a port near `--extension_server_port`.
+- Prefer the Antigravity language-server process's actual listening ports before falling back to heuristic API port probes.
+
+---
+
+## [Windows] 0.31.0 - 2026-05-29
+
+### Added
+- Support AWS Bedrock usage through named AWS CLI profiles, including SSO, assume-role, and credential-process profiles that `aws configure export-credentials` can resolve.
+- Show Codex Spark 5-hour and weekly quota lanes from ChatGPT/Codex `additional_rate_limits` payloads.
+
+### Changed
+- Port upstream CodexBar 0.31.0 provider behavior into the Windows/Tauri Rust backend while keeping macOS-only AppKit menu and Homebrew changes out of the Windows shell.
+- Make local Codex/Claude chart scans cancellation-aware so repeated chart refreshes stop obsolete JSONL scans sooner.
+- Document Bedrock profile credentials in the provider settings help text.
+
+### Fixed
+- Hide Claude's obsolete Design quota lane while preserving the remaining OAuth apps and Daily Routines usage lanes.
+
+---
+
+## [Windows] 0.30.4 - 2026-05-29
+
+### Added
+- Add `codexbar diagnose`, a generic safe provider diagnostic export that reports provider/source/config/fetch health without exposing cookies, tokens, account emails, or raw secrets.
+
+### Changed
+- Port upstream CodexBar 0.30.1 provider diagnostics behavior to the Rust CLI while omitting macOS-only AppKit status-item handling that has no Windows Tauri equivalent.
+- Add trailing breathing room to Providers settings sidebar rows so row controls do not crowd the scrollbar.
+
+### Fixed
+- Treat Claude OAuth usage HTTP 429s as rate limits, preserve cached credentials, and back off repeated background retries.
 - Reopen the tray panel from Windows shortcut/tray activation when the app is hidden, keep Claude usage on the current OAuth API path when no manual cookie is configured, and avoid flashing console windows during Windows CLI path probes.
 
 ---

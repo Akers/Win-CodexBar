@@ -4,8 +4,11 @@
 
 use chrono::{DateTime, Utc};
 use reqwest::Client;
+use reqwest::header::{HeaderValue, RETRY_AFTER};
 use serde::Deserialize;
 use std::path::PathBuf;
+use std::sync::{Mutex, OnceLock};
+use std::time::{Duration, Instant};
 
 use crate::core::{NamedRateWindow, ProviderError, ProviderFetchResult, RateWindow, UsageSnapshot};
 
@@ -119,12 +122,15 @@ pub struct ClaudeOAuthFetcher {
     client: Client,
 }
 
+static RATE_LIMIT_BACKOFF_UNTIL: OnceLock<Mutex<Option<Instant>>> = OnceLock::new();
+
 impl ClaudeOAuthFetcher {
     const USAGE_URL: &'static str = "https://api.anthropic.com/api/oauth/usage";
     const CREDENTIALS_PATH: &'static str = ".claude/.credentials.json";
     const KEYRING_SERVICE: &'static str = "Claude Code-credentials";
     const ENV_TOKEN_KEY: &'static str = "CODEXBAR_CLAUDE_OAUTH_TOKEN";
     const ENV_SCOPES_KEY: &'static str = "CODEXBAR_CLAUDE_OAUTH_SCOPES";
+    const DEFAULT_RATE_LIMIT_BACKOFF: Duration = Duration::from_secs(5 * 60);
 
     pub fn new() -> Self {
         Self {
@@ -423,6 +429,10 @@ impl ClaudeOAuthFetcher {
             )));
         }
 
+        if let Some(remaining) = Self::rate_limit_backoff_remaining() {
+            return Err(Self::rate_limited_error(remaining));
+        }
+
         let response = self
             .client
             .get(Self::USAGE_URL)
@@ -438,6 +448,7 @@ impl ClaudeOAuthFetcher {
 
         if !response.status().is_success() {
             let status = response.status();
+            let retry_after = Self::retry_after_duration(response.headers().get(RETRY_AFTER));
             let body = response.text().await.unwrap_or_default();
 
             if status.as_u16() == 401 {
@@ -452,6 +463,11 @@ impl ClaudeOAuthFetcher {
                 ));
             }
 
+            if status.as_u16() == 429 {
+                Self::record_rate_limit(retry_after);
+                return Err(Self::rate_limited_error(retry_after));
+            }
+
             return Err(ProviderError::OAuth(format!(
                 "API error {}: {}",
                 status,
@@ -464,7 +480,65 @@ impl ClaudeOAuthFetcher {
             .await
             .map_err(|e| ProviderError::Parse(format!("Failed to parse OAuth response: {}", e)))?;
 
+        Self::clear_rate_limit();
         Ok(usage)
+    }
+
+    fn rate_limit_gate() -> &'static Mutex<Option<Instant>> {
+        RATE_LIMIT_BACKOFF_UNTIL.get_or_init(|| Mutex::new(None))
+    }
+
+    fn rate_limit_backoff_remaining() -> Option<Duration> {
+        let mut guard = Self::rate_limit_gate().lock().ok()?;
+        let until = (*guard)?;
+        let now = Instant::now();
+        if until <= now {
+            *guard = None;
+            None
+        } else {
+            Some(until.saturating_duration_since(now))
+        }
+    }
+
+    fn record_rate_limit(duration: Duration) {
+        if let Ok(mut guard) = Self::rate_limit_gate().lock() {
+            *guard = Some(Instant::now() + duration);
+        }
+    }
+
+    fn clear_rate_limit() {
+        if let Ok(mut guard) = Self::rate_limit_gate().lock() {
+            *guard = None;
+        }
+    }
+
+    fn retry_after_duration(value: Option<&HeaderValue>) -> Duration {
+        let Some(value) = value.and_then(|value| value.to_str().ok()) else {
+            return Self::DEFAULT_RATE_LIMIT_BACKOFF;
+        };
+
+        if let Ok(seconds) = value.trim().parse::<u64>() {
+            return Duration::from_secs(seconds);
+        }
+
+        if let Ok(date) = DateTime::parse_from_rfc2822(value.trim()) {
+            let now = Utc::now();
+            let date = date.with_timezone(&Utc);
+            if date > now {
+                return (date - now)
+                    .to_std()
+                    .unwrap_or(Self::DEFAULT_RATE_LIMIT_BACKOFF);
+            }
+        }
+
+        Self::DEFAULT_RATE_LIMIT_BACKOFF
+    }
+
+    fn rate_limited_error(duration: Duration) -> ProviderError {
+        ProviderError::OAuth(format!(
+            "Claude OAuth usage endpoint is rate limited. Retrying in about {}s; credentials were preserved.",
+            duration.as_secs().max(1)
+        ))
     }
 
     /// Build UsageSnapshot from OAuth response
@@ -506,24 +580,14 @@ impl ClaudeOAuthFetcher {
             usage = usage.with_model_specific(sonnet);
         }
 
-        let extra_windows = [
-            (
-                "claude-design",
-                "Designs",
-                response
-                    .seven_day_design
-                    .as_ref()
-                    .and_then(|w| Self::to_rate_window(w, Some(10080))),
-            ),
-            (
-                "claude-routines",
-                "Daily Routines",
-                response
-                    .seven_day_routines
-                    .as_ref()
-                    .and_then(|w| Self::to_rate_window(w, Some(10080))),
-            ),
-        ];
+        let extra_windows = [(
+            "claude-routines",
+            "Daily Routines",
+            response
+                .seven_day_routines
+                .as_ref()
+                .and_then(|w| Self::to_rate_window(w, Some(10080))),
+        )];
         for (id, title, window) in extra_windows {
             if let Some(window) = window {
                 usage
@@ -598,6 +662,8 @@ fn format_reset_date(date: DateTime<Utc>) -> String {
 #[cfg(test)]
 mod tests {
     use super::{ClaudeOAuthCredentials, ClaudeOAuthFetcher, OAuthUsageResponse, UsageWindow};
+    use reqwest::header::HeaderValue;
+    use std::time::Duration;
 
     #[test]
     fn converts_fractional_utilization_to_percent() {
@@ -646,7 +712,7 @@ mod tests {
 
         assert_eq!(usage.primary.used_percent, 100.0);
         assert!((usage.secondary.expect("weekly").used_percent - 14.0).abs() < 0.001);
-        assert_eq!(usage.extra_rate_windows[0].id, "claude-design");
+        assert!(usage.extra_rate_windows.is_empty());
     }
 
     #[test]
@@ -705,5 +771,41 @@ mod tests {
                 .to_string()
                 .contains("Claude OAuth access token missing")
         );
+    }
+
+    #[test]
+    fn parses_retry_after_seconds() {
+        let header = HeaderValue::from_static("17");
+        let duration = ClaudeOAuthFetcher::retry_after_duration(Some(&header));
+
+        assert_eq!(duration, Duration::from_secs(17));
+    }
+
+    #[test]
+    fn invalid_retry_after_uses_default_backoff() {
+        let header = HeaderValue::from_static("not-a-date");
+        let duration = ClaudeOAuthFetcher::retry_after_duration(Some(&header));
+
+        assert_eq!(duration, ClaudeOAuthFetcher::DEFAULT_RATE_LIMIT_BACKOFF);
+    }
+
+    #[test]
+    fn rate_limit_gate_blocks_and_clears() {
+        ClaudeOAuthFetcher::clear_rate_limit();
+
+        ClaudeOAuthFetcher::record_rate_limit(Duration::from_secs(30));
+        assert!(ClaudeOAuthFetcher::rate_limit_backoff_remaining().is_some());
+
+        ClaudeOAuthFetcher::clear_rate_limit();
+        assert!(ClaudeOAuthFetcher::rate_limit_backoff_remaining().is_none());
+    }
+
+    #[test]
+    fn rate_limited_error_preserves_credentials_language() {
+        let error = ClaudeOAuthFetcher::rate_limited_error(Duration::from_secs(5));
+        let message = error.to_string();
+
+        assert!(message.contains("rate limited"));
+        assert!(message.contains("credentials were preserved"));
     }
 }

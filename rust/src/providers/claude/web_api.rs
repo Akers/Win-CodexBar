@@ -338,14 +338,6 @@ impl ClaudeWebApiFetcher {
                     .map(|w| self.to_rate_window(w, Some(10080))),
             ),
             (
-                "claude-design",
-                "Designs",
-                usage
-                    .seven_day_design
-                    .as_ref()
-                    .map(|w| self.to_rate_window(w, Some(10080))),
-            ),
-            (
                 "claude-routines",
                 "Daily Routines",
                 usage

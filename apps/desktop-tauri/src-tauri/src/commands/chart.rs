@@ -8,6 +8,11 @@
 use codexbar::core::OpenAIDashboardCacheStore;
 use codexbar::cost_scanner::{CostScanner, CostSummary, get_daily_cost_history};
 use serde::{Deserialize, Serialize};
+use std::collections::HashMap;
+use std::sync::{
+    Arc, Mutex, OnceLock,
+    atomic::{AtomicBool, Ordering},
+};
 
 /// A single (date, value) point for cost or credits history charts.
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -63,8 +68,9 @@ pub async fn get_provider_chart_data(
     account_email: Option<String>,
 ) -> ProviderChartData {
     let fallback_provider_id = provider_id.clone();
+    let cancel = register_chart_scan(&provider_id);
     tauri::async_runtime::spawn_blocking(move || {
-        build_provider_chart_data(provider_id, account_email)
+        build_provider_chart_data_with_cancel(provider_id, account_email, Some(cancel))
     })
     .await
     .unwrap_or_else(|err| {
@@ -77,6 +83,14 @@ pub(crate) fn build_provider_chart_data(
     provider_id: String,
     account_email: Option<String>,
 ) -> ProviderChartData {
+    build_provider_chart_data_with_cancel(provider_id, account_email, None)
+}
+
+fn build_provider_chart_data_with_cancel(
+    provider_id: String,
+    account_email: Option<String>,
+    cancel: Option<Arc<AtomicBool>>,
+) -> ProviderChartData {
     let raw_cost = get_daily_cost_history(&provider_id, 30);
     let cost_history: Vec<DailyCostPoint> = raw_cost
         .into_iter()
@@ -85,7 +99,14 @@ pub(crate) fn build_provider_chart_data(
 
     let (credits_history, usage_breakdown) =
         load_openai_dashboard_chart_data(&provider_id, account_email.as_deref());
-    let local_usage = load_local_usage_summary(&provider_id);
+    let local_usage = if cancel
+        .as_deref()
+        .is_some_and(|flag| flag.load(Ordering::Relaxed))
+    {
+        None
+    } else {
+        load_local_usage_summary(&provider_id, cancel.as_deref())
+    };
 
     ProviderChartData {
         provider_id,
@@ -108,9 +129,30 @@ impl ProviderChartData {
     }
 }
 
-fn load_local_usage_summary(provider_id: &str) -> Option<ProviderLocalUsageSummary> {
-    let thirty_day = scan_local_cost(provider_id, 30)?;
-    let today = scan_local_cost(provider_id, 1).unwrap_or_default();
+fn active_chart_scans() -> &'static Mutex<HashMap<String, Arc<AtomicBool>>> {
+    static ACTIVE: OnceLock<Mutex<HashMap<String, Arc<AtomicBool>>>> = OnceLock::new();
+    ACTIVE.get_or_init(|| Mutex::new(HashMap::new()))
+}
+
+fn register_chart_scan(provider_id: &str) -> Arc<AtomicBool> {
+    let next = Arc::new(AtomicBool::new(false));
+    if let Ok(mut active) = active_chart_scans().lock()
+        && let Some(previous) = active.insert(provider_id.to_string(), next.clone())
+    {
+        previous.store(true, Ordering::Relaxed);
+    }
+    next
+}
+
+fn load_local_usage_summary(
+    provider_id: &str,
+    cancel: Option<&AtomicBool>,
+) -> Option<ProviderLocalUsageSummary> {
+    let thirty_day = scan_local_cost(provider_id, 30, cancel)?;
+    if cancel.is_some_and(|flag| flag.load(Ordering::Relaxed)) {
+        return None;
+    }
+    let today = scan_local_cost(provider_id, 1, cancel).unwrap_or_default();
 
     let thirty_day_tokens = total_tokens(&thirty_day);
     let latest_tokens = total_tokens(&today);
@@ -134,17 +176,21 @@ fn load_local_usage_summary(provider_id: &str) -> Option<ProviderLocalUsageSumma
     })
 }
 
-fn scan_local_cost(provider_id: &str, days: u32) -> Option<CostSummary> {
+fn scan_local_cost(
+    provider_id: &str,
+    days: u32,
+    cancel: Option<&AtomicBool>,
+) -> Option<CostSummary> {
     let scanner = CostScanner::new(days);
     match provider_id {
-        "codex" => Some(scanner.scan_codex()),
-        "claude" => Some(scanner.scan_claude()),
+        "codex" => Some(scanner.scan_codex_with_cancel(cancel)),
+        "claude" => Some(scanner.scan_claude_with_cancel(cancel)),
         _ => None,
     }
 }
 
 fn total_tokens(summary: &CostSummary) -> u64 {
-    summary.input_tokens + summary.output_tokens + summary.cached_tokens
+    summary.input_tokens + summary.output_tokens
 }
 
 fn non_zero_f64(value: f64) -> Option<f64> {

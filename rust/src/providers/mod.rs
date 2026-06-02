@@ -86,7 +86,7 @@ pub use kiro::KiroProvider;
 pub use llmproxy::LLMProxyProvider;
 pub use manus::ManusProvider;
 pub use mimo::MiMoProvider;
-pub use minimax::MiniMaxProvider;
+pub use minimax::{MiniMaxProvider, MiniMaxRegion};
 pub use mistral::MistralProvider;
 pub use nanogpt::NanoGPTProvider;
 pub use ollama::OllamaProvider;

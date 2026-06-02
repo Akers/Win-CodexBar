@@ -1,11 +1,26 @@
 import { useEffect, useState } from "react";
 import { useLocale } from "../../../hooks/useLocale";
 import { useUpdateState } from "../../../hooks/useUpdateState";
-import { getAppInfo } from "../../../lib/tauri";
+import { getAppInfo, openExternalUrl } from "../../../lib/tauri";
 import { Field, Select, Toggle } from "../../../components/FormControls";
 import type { AppInfoBridge, UpdateChannel } from "../../../types/bridge";
 import type { TabProps } from "../../Settings";
 import codexbarIcon from "../../../assets/codexbar-icon.png";
+
+const ABOUT_LINKS = [
+  {
+    label: "GitHub",
+    url: "https://github.com/Finesssee/Win-CodexBar",
+  },
+  {
+    label: "Website",
+    url: "https://codexbar.app",
+  },
+  {
+    label: "Original Project",
+    url: "https://github.com/steipete/CodexBar",
+  },
+] as const;
 
 export default function AboutTab({ settings, set, saving }: TabProps) {
   const { t } = useLocale();
@@ -13,6 +28,7 @@ export default function AboutTab({ settings, set, saving }: TabProps) {
   const { updateState, checkNow, download, apply, openRelease } =
     useUpdateState();
   const [hasChecked, setHasChecked] = useState(false);
+  const [linkError, setLinkError] = useState<string | null>(null);
 
   useEffect(() => {
     void getAppInfo().then(setAppInfo);
@@ -21,6 +37,13 @@ export default function AboutTab({ settings, set, saving }: TabProps) {
   const handleCheck = () => {
     setHasChecked(true);
     checkNow();
+  };
+
+  const openAboutLink = (url: string) => {
+    setLinkError(null);
+    openExternalUrl(url).catch((error) => {
+      setLinkError(String(error));
+    });
   };
 
   if (!appInfo) {
@@ -50,31 +73,18 @@ export default function AboutTab({ settings, set, saving }: TabProps) {
       </div>
 
       <div className="about-links">
-        <a
-          className="about-link"
-          href="https://github.com/Finesssee/Win-CodexBar"
-          target="_blank"
-          rel="noopener noreferrer"
-        >
-          GitHub
-        </a>
-        <a
-          className="about-link"
-          href="https://codexbar.app"
-          target="_blank"
-          rel="noopener noreferrer"
-        >
-          Website
-        </a>
-        <a
-          className="about-link"
-          href="https://github.com/steipete/CodexBar"
-          target="_blank"
-          rel="noopener noreferrer"
-        >
-          Original Project
-        </a>
+        {ABOUT_LINKS.map((link) => (
+          <button
+            key={link.url}
+            type="button"
+            className="about-link"
+            onClick={() => openAboutLink(link.url)}
+          >
+            {link.label}
+          </button>
+        ))}
       </div>
+      {linkError && <p className="about-update-msg">Error: {linkError}</p>}
 
       <div className="about-divider" />
 
@@ -179,14 +189,13 @@ export default function AboutTab({ settings, set, saving }: TabProps) {
 
       <p className="about-copyright">
         Windows port by NessZerra. Based on{" "}
-        <a
+        <button
+          type="button"
           className="about-link about-link--inline"
-          href="https://github.com/steipete/CodexBar"
-          target="_blank"
-          rel="noopener noreferrer"
+          onClick={() => openAboutLink("https://github.com/steipete/CodexBar")}
         >
           CodexBar
-        </a>{" "}
+        </button>{" "}
         by steipete. MIT License.
       </p>
     </section>

@@ -56,7 +56,7 @@ pub(crate) fn build_fetch_context(
                 // Try browser cookie extraction as fallback when no manual cookie is set.
                 // On non-Windows this is a harmless no-op that returns an error.
                 let cookie_header = active_token_cookie.or(stored_cookie).or_else(|| {
-                    id.cookie_domain().and_then(|domain| {
+                    provider_cookie_domain(id, settings).and_then(|domain| {
                         codexbar::browser::cookies::get_cookie_header(domain)
                             .ok()
                             .filter(|h| !h.is_empty())
@@ -73,21 +73,28 @@ pub(crate) fn build_fetch_context(
         .map(|s| s.to_string())
         .or(active_token_api_key);
 
-    // Inject api_region for providers that support regional endpoints
-    let api_region = match id {
-        ProviderId::Zai | ProviderId::MiniMax | ProviderId::Alibaba => {
-            Some(settings.api_region(id).to_string())
-        }
-        _ => None,
-    };
+    let workspace_id = settings.workspace_id(id).trim().to_string();
+    let api_region = settings.api_region(id).trim().to_string();
 
     FetchContext {
         source_mode,
         manual_cookie_header: cookie_header,
         api_key,
-        api_region,
+        workspace_id: (!workspace_id.is_empty()).then_some(workspace_id),
+        api_region: (!api_region.is_empty()).then_some(api_region),
         ..FetchContext::default()
     }
+}
+
+pub(crate) fn provider_cookie_domain(id: ProviderId, settings: &Settings) -> Option<&'static str> {
+    if id == ProviderId::MiniMax {
+        return Some(
+            codexbar::providers::MiniMaxProvider::cookie_domain_for_region(Some(
+                settings.api_region(id),
+            )),
+        );
+    }
+    id.cookie_domain()
 }
 
 const DEFAULT_PROVIDER_FETCH_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(35);
@@ -240,12 +247,67 @@ fn spawn_provider_refreshes(
 
 async fn refresh_provider(app: tauri::AppHandle, id: ProviderId, ctx: FetchContext) {
     let snapshot = fetch_provider_snapshot(id, ctx).await;
-    events::emit_provider_updated(&app, &snapshot);
 
     let state = app.state::<Mutex<AppState>>();
     if let Ok(mut guard) = state.lock() {
+        let snapshot = preserve_last_good_transient_failure(&mut guard, id, snapshot);
+        events::emit_provider_updated(&app, &snapshot);
         upsert_provider_cache(&mut guard.provider_cache, snapshot);
+    } else {
+        events::emit_provider_updated(&app, &snapshot);
     }
+}
+
+pub(super) fn preserve_last_good_transient_failure(
+    guard: &mut AppState,
+    id: ProviderId,
+    snapshot: ProviderUsageSnapshot,
+) -> ProviderUsageSnapshot {
+    if snapshot.error.is_none() {
+        guard.transient_provider_failure_counts.remove(&id);
+        return snapshot;
+    }
+
+    if id != ProviderId::Claude || !is_transient_claude_auth_error(snapshot.error.as_deref()) {
+        guard.transient_provider_failure_counts.remove(&id);
+        return snapshot;
+    }
+
+    let Some(previous) = guard
+        .provider_cache
+        .iter()
+        .find(|cached| cached.provider_id == id.cli_name() && cached.error.is_none())
+        .cloned()
+    else {
+        return snapshot;
+    };
+
+    let count = guard
+        .transient_provider_failure_counts
+        .entry(id)
+        .or_insert(0);
+    if *count == 0 {
+        *count = 1;
+        tracing::warn!(
+            provider = id.cli_name(),
+            "preserving last good provider snapshot after transient auth failure"
+        );
+        previous
+    } else {
+        *count = count.saturating_add(1);
+        snapshot
+    }
+}
+
+fn is_transient_claude_auth_error(error: Option<&str>) -> bool {
+    let Some(error) = error else {
+        return false;
+    };
+    let lower = error.to_ascii_lowercase();
+    lower.contains("unauthorized")
+        || lower.contains("authentication required")
+        || lower.contains("auth required")
+        || lower.contains("oauth")
 }
 
 async fn fetch_provider_snapshot(id: ProviderId, ctx: FetchContext) -> ProviderUsageSnapshot {
