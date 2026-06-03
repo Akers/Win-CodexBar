@@ -507,10 +507,10 @@ impl MiniMaxProvider {
             .header("Cookie", cookie_header)
             .header("Accept", "application/json, text/plain, */*")
             .header("X-Requested-With", "XMLHttpRequest")
-            .header("Origin", origin_from_url(region.billing_history_url()))
+            .header("Origin", origin_from_url(&region.billing_history_url()))
             .header(
                 "Referer",
-                format!("{}/account", origin_from_url(region.billing_history_url())),
+                format!("{}/account", origin_from_url(&region.billing_history_url())),
             )
             .header(
                 "User-Agent",

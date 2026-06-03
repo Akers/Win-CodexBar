@@ -474,7 +474,6 @@ impl CookieExtractor {
             );
             return Err(CookieError::AppBoundEncryption);
         }
-        }
 
         Ok(cookies)
     }
