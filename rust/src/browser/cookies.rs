@@ -50,7 +50,6 @@ pub enum CookieError {
         "Chrome/Edge App-Bound Encryption is blocking automatic browser import. \
              Paste the Cookie header manually, or use Firefox if that browser has the same login."
     )]
-    )]
     AppBoundEncryption,
 }
 

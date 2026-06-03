@@ -148,7 +148,6 @@ impl From<&str> for MiniMaxRegion {
             _ => MiniMaxRegion::Global,
         }
     }
-}    }
 }
 
 /// MiniMax provider
