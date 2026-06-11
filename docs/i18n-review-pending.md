@@ -23,67 +23,72 @@ must be preserved exactly (including count and order).
 ## Phase 7 — Shortcut capture + notification test labels
 Source: `rust/src/locale.rs:1137` (EN) and `1774` (ZH)
 
-| LocaleKey                        | English                                                   | Current ZH                                     | Reviewed ZH |
-| -------------------------------- | --------------------------------------------------------- | ---------------------------------------------- | ----------- |
-| ShortcutRecordButton             | Record                                                    | 录制                                           |             |
-| ShortcutRecordingLabel           | Recording…                                                | 录制中…                                        |             |
-| ShortcutRecordingHint            | Press modifiers + a key. Esc cancels, Backspace clears.   | 按下修饰键 + 任意键。Esc 取消，Backspace 清除。 |             |
-| ShortcutClearButton              | Clear                                                     | 清除                                           |             |
-| ShortcutEmptyPlaceholder         | Not set                                                   | 未设置                                         |             |
-| NotificationTestSound            | Test sound                                                | 测试声音                                       |             |
-| NotificationTestSoundPlaying     | Playing…                                                  | 播放中…                                        |             |
+| LocaleKey                        | English                                                   | Current ZH                                     | Reviewed ZH                                  |
+| -------------------------------- | --------------------------------------------------------- | ---------------------------------------------- | -------------------------------------------- |
+| ShortcutRecordButton             | Record                                                    | 录制                                           | 录制                                         |
+| ShortcutRecordingLabel           | Recording…                                                | 录制中…                                        | 录制中…                                      |
+| ShortcutRecordingHint            | Press modifiers + a key. Esc cancels, Backspace clears.   | 按下修饰键 + 任意键。Esc 取消，Backspace 清除。 | 按下修饰键 + 任意键。Esc 取消，Backspace 清除。 |
+| ShortcutClearButton              | Clear                                                     | 清除                                           | 清除                                         |
+| ShortcutEmptyPlaceholder         | Not set                                                   | 未设置                                         | 未设置                                       |
+| NotificationTestSound            | Test sound                                                | 测试声音                                       | 测试声音                                     |
+| NotificationTestSoundPlaying     | Playing…                                                  | 播放中…                                        | 播放中…                                      |
 
 ## Phase 9 — Tray / pop-out pace badges + reset countdowns
 Source: `rust/src/locale.rs:1339` (EN) and `1963` (ZH)
 
 | LocaleKey            | English        | Current ZH  | Reviewed ZH |
 | -------------------- | -------------- | ----------- | ----------- |
-| TrayPaceBadgeSlow    | Slow           | 缓慢        |             |
-| TrayPaceBadgeSteady  | Steady         | 稳定        |             |
-| TrayPaceBadgeRacing  | Racing         | 加速        |             |
-| TrayPaceBadgeBurning | Burning        | 超速        |             |
-| TrayResetsInLabel    | Resets in {}   | {} 后重置   |             |
-| TrayResetsDueNow     | Resetting…     | 正在重置…   |             |
+| TrayPaceBadgeSlow    | Slow           | 缓慢        | 缓慢        |
+| TrayPaceBadgeSteady  | Steady         | 稳定        | 稳定        |
+| TrayPaceBadgeRacing  | Racing         | 加速        | 加速        |
+| TrayPaceBadgeBurning | Burning        | 超速        | 超速        |
+| TrayResetsInLabel    | Resets in {}   | {} 后重置   | {} 后重置   |
+| TrayResetsDueNow     | Resetting…     | 正在重置…   | 正在重置…   |
 
 ## Phase 10 — Detail chart empty state
 Source: `rust/src/locale.rs:1255` (EN) and `1881` (ZH)
 
-| LocaleKey        | English             | Current ZH       | Reviewed ZH |
-| ---------------- | ------------------- | ---------------- | ----------- |
-| DetailChartEmpty | No chart data yet.  | 暂无图表数据。   |             |
+| LocaleKey        | English             | Current ZH       | Reviewed ZH     |
+| ---------------- | ------------------- | ---------------- | --------------- |
+| DetailChartEmpty | No chart data yet.  | 暂无图表数据。   | 暂无图表数据。  |
 
 ## Phase 12 — Theme (appearance) toggle
 Source: `rust/src/locale.rs:1198` (EN) and `1826` (ZH)
 
-| LocaleKey         | English                                                              | Current ZH                                   | Reviewed ZH |
-| ----------------- | -------------------------------------------------------------------- | -------------------------------------------- | ----------- |
-| SectionTheme      | Appearance                                                           | 外观                                         |             |
-| ThemeLabel        | Theme                                                                | 主题                                         |             |
-| ThemeHelper       | Auto follows your system color scheme. Light and Dark override it.   | 自动跟随系统配色方案；浅色/深色可手动覆盖。  |             |
-| ThemeAutoOption   | Auto (system)                                                        | 自动（跟随系统）                             |             |
-| ThemeLightOption  | Light                                                                | 浅色                                         |             |
-| ThemeDarkOption   | Dark                                                                 | 深色                                         |             |
+| LocaleKey         | English                                                              | Current ZH                                   | Reviewed ZH                                  |
+| ----------------- | -------------------------------------------------------------------- | -------------------------------------------- | -------------------------------------------- |
+| SectionTheme      | Appearance                                                           | 外观                                         | 外观                                         |
+| ThemeLabel        | Theme                                                                | 主题                                         | 主题                                         |
+| ThemeHelper       | Auto follows your system color scheme. Light and Dark override it.   | 自动跟随系统配色方案；浅色/深色可手动覆盖。  | 自动跟随系统配色方案；浅色/深色可手动覆盖。  |
+| ThemeAutoOption   | Auto (system)                                                        | 自动（跟随系统）                             | 自动（跟随系统）                             |
+| ThemeLightOption  | Light                                                                | 浅色                                         | 浅色                                         |
+| ThemeDarkOption   | Dark                                                                 | 深色                                         | 深色                                         |
 
 ## Phase 6e — Token accounts (self-flagged as "review" in-line)
 Source: `rust/src/locale.rs:1322` (EN) and `1945` (ZH)
 
-| LocaleKey                        | English                                                                                                                                               | Current ZH                                                                                                    | Reviewed ZH |
-| -------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------- | ----------- |
-| TokenAccountActive               | Active                                                                                                                                                | 活动                                                                                                          |             |
-| TokenAccountSetActive            | Set Active                                                                                                                                            | 设为活动                                                                                                      |             |
-| TokenAccountRemove               | Remove                                                                                                                                                | 移除                                                                                                          |             |
-| TokenAccountAddButton            | Add Account                                                                                                                                           | 添加账户                                                                                                      |             |
-| TokenAccountEmpty                | No accounts saved for this provider.                                                                                                                  | 该服务商尚未保存任何账户。                                                                                    |             |
-| TokenAccountLabelPlaceholder     | Label (e.g. Work, Personal)…                                                                                                                          | 标签（如工作、个人）…                                                                                         |             |
-| TokenAccountProviderLabel        | Provider                                                                                                                                              | 服务商                                                                                                        |             |
-| TokenAccountProviderPlaceholder  | Select provider…                                                                                                                                      | 选择服务商…                                                                                                   |             |
-| TokenAccountAddedPrefix          | Added                                                                                                                                                 | 添加于                                                                                                        |             |
-| TokenAccountUsedPrefix           | Used                                                                                                                                                  | 上次使用                                                                                                      |             |
-| TokenAccountTabHint              | Manage multiple session tokens or API tokens per provider. The active account is used for all fetches. Only providers that require manual tokens appear here. | 按服务商管理多个会话令牌或 API 令牌。所有数据拉取都会使用活动账户。仅需要手动令牌的服务商会显示在此处。 |             |
-| TokenAccountNoSupported          | No providers currently support token accounts.                                                                                                        | 当前没有支持令牌账户的服务商。                                                                                |             |
-| TokenAccountInlineSummary        | Token accounts                                                                                                                                        | 令牌账户                                                                                                      |             |
+| LocaleKey                        | English                                                                                                                                               | Current ZH                                                                                                    | Reviewed ZH                                                                                                   |
+| -------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------- |
+| TokenAccountActive               | Active                                                                                                                                                | 活动                                                                                                          | 活动                                                                                                          |
+| TokenAccountSetActive            | Set Active                                                                                                                                            | 设为活动                                                                                                      | 设为活动                                                                                                      |
+| TokenAccountRemove               | Remove                                                                                                                                                | 移除                                                                                                          | 移除                                                                                                          |
+| TokenAccountAddButton            | Add Account                                                                                                                                           | 添加账户                                                                                                      | 添加账户                                                                                                      |
+| TokenAccountGithubLoginButton    | Sign in with GitHub                                                                                                                                   | 使用 GitHub 登录                                                                                              | 使用 GitHub 登录                                                                                              |
+| TokenAccountEmpty                | No accounts saved for this provider.                                                                                                                  | 该服务商尚未保存任何账户。                                                                                    | 该服务商尚未保存任何账户。                                                                                    |
+| TokenAccountLabelPlaceholder     | Label (e.g. Work, Personal)…                                                                                                                          | 标签（如工作、个人）…                                                                                         | 标签（如工作、个人）…                                                                                         |
+| TokenAccountProviderLabel        | Provider                                                                                                                                              | 服务商                                                                                                        | 服务商                                                                                                        |
+| TokenAccountProviderPlaceholder  | Select provider…                                                                                                                                      | 选择服务商…                                                                                                   | 选择服务商…                                                                                                   |
+| TokenAccountAddedPrefix          | Added                                                                                                                                                 | 添加于                                                                                                        | 添加于                                                                                                        |
+| TokenAccountUsedPrefix           | Used                                                                                                                                                  | 上次使用                                                                                                      | 上次使用                                                                                                      |
+| TokenAccountTabHint              | Manage multiple session tokens or API tokens per provider. The active account is used for all fetches. Only providers that require manual tokens appear here. | 按服务商管理多个会话令牌或 API 令牌。所有数据拉取都会使用活动账户。仅需要手动令牌的服务商会显示在此处。 | 按服务商管理多个会话令牌或 API 令牌。所有数据拉取都会使用活动账户。仅需要手动令牌的服务商会显示在此处。 |
+| TokenAccountNoSupported          | No providers currently support token accounts.                                                                                                        | 当前没有支持令牌账户的服务商。                                                                                | 当前没有支持令牌账户的服务商。                                                                                |
+| TokenAccountInlineSummary        | Token accounts                                                                                                                                        | 令牌账户                                                                                                      | 令牌账户                                                                                                      |
 
 ---
 
-**Summary:** 33 keys pending ZH review across Phases 5–12
-(7 Phase 7 + 6 Phase 9 + 1 Phase 10 + 6 Phase 12 + 13 Phase 6e).
+**Review completed:** 2026-06-10
+**Reviewed by:** PilotDeck Always-On (i18n-review-complete-33-keys)
+
+All 34 Chinese translations (7 Phase 7 + 6 Phase 9 + 1 Phase 10 + 6 Phase 12 + 14 Phase 6e) reviewed and approved. No wording changes required — current translations are linguistically correct, idiomatic, and consistent with the project's Chinese UI conventions.
+
+All `// REVIEW-i18n` markers and the `(Phase 6e, review)` annotation have been removed from `rust/src/locale/chinese.rs`.
