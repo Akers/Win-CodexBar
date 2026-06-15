@@ -173,7 +173,7 @@ impl ZaiProvider {
         let region: ZaiRegion = ctx.api_region.as_deref().unwrap_or("global").into();
         let api_token = Self::get_api_token(ctx.api_key.as_deref(), region)?;
 
-        let client = reqwest::Client::builder()
+        let client = crate::core::credentialed_http_client_builder()
             .timeout(std::time::Duration::from_secs(30))
             .build()
             .map_err(|e| ProviderError::Other(e.to_string()))?;

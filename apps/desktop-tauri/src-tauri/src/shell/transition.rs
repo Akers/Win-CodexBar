@@ -456,8 +456,10 @@ pub(super) fn apply_transition(
             )?;
             events::emit_surface_mode_changed(app, transition.from, transition.to, current_target);
 
-            // Phase 3: now make the window visible.
-            if needs_show {
+            // Phase 3: now make the window visible. TrayPanel is revealed by
+            // the frontend after its first layout pass so Windows never shows
+            // the pre-measure blank/backing frame.
+            if needs_show && transition.to != SurfaceMode::TrayPanel {
                 let _ = show_window(window);
             }
             clamp_current_window_to_work_area(window);
@@ -523,6 +525,23 @@ pub(super) fn apply_transition(
             Ok(recovery.mode)
         }
     }
+}
+
+pub fn handle_tray_panel_click(app: &AppHandle, position: Option<(i32, i32)>) {
+    const BLUR_DISMISS_CLICK_WINDOW: std::time::Duration = std::time::Duration::from_millis(250);
+
+    let consumed_blur_dismissal = {
+        let st = app.state::<Mutex<AppState>>();
+        st.lock()
+            .unwrap()
+            .take_recent_blur_dismissal(std::time::Instant::now(), BLUR_DISMISS_CLICK_WINDOW)
+    };
+
+    if consumed_blur_dismissal {
+        return;
+    }
+
+    toggle_tray_panel(app, position);
 }
 
 /// Toggle the tray panel: hide if currently showing, show at `position` otherwise.

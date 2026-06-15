@@ -60,6 +60,10 @@ export function setSurfaceMode<M extends VisibleSurfaceMode>(
   return invoke<SurfaceMode>("set_surface_mode", { mode, target });
 }
 
+export function dismissTrayPanel(): Promise<void> {
+  return invoke<void>("dismiss_tray_panel");
+}
+
 export function openSettingsWindow(tab: string): Promise<void> {
   return invoke<void>("open_settings_window", { tab });
 }
@@ -372,6 +376,10 @@ export function playNotificationSound(): Promise<void> {
 
 export function reanchorTrayPanel(): Promise<void> {
   return invoke<void>("reanchor_tray_panel");
+}
+
+export function revealTrayPanelWindow(): Promise<void> {
+  return invoke<void>("reveal_tray_panel_window");
 }
 
 export function quitApp(): Promise<void> {

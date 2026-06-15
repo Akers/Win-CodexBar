@@ -24,7 +24,7 @@ pub struct CodexApi {
 impl CodexApi {
     pub fn new() -> Self {
         // Build client with proper TLS settings
-        let client = reqwest::Client::builder()
+        let client = crate::core::credentialed_http_client_builder()
             .use_rustls_tls()
             .timeout(std::time::Duration::from_secs(30))
             .build()
@@ -112,7 +112,7 @@ impl CodexApi {
     }
 
     fn parse_credentials_json(content: &str) -> Result<CodexCredentials, ProviderError> {
-        let json: serde_json::Value = serde_json::from_str(&content)
+        let json: serde_json::Value = serde_json::from_str(content)
             .map_err(|e| ProviderError::Parse(format!("Invalid Codex credentials JSON: {}", e)))?;
 
         // Check for OPENAI_API_KEY first

@@ -1,6 +1,108 @@
 # Changelog
 
-## Unreleased
+## [Windows] 0.33.2 - 2026-06-12
+
+### Fixed
+- Hide the tray panel when it loses focus, matching normal tray-popover behavior.
+- Allow Escape to dismiss the tray panel without quitting the app.
+- Prevent the tray icon click that caused a blur-dismiss from immediately reopening the panel.
+
+---
+
+## [Windows] 0.33.1 - 2026-06-11
+
+### Fixed
+- Show GitHub Copilot over-budget quota values when GitHub reports negative remaining quota, such as displaying `115% used` instead of clamping to `100%`.
+- Keep Copilot progress bars visually capped at full width while preserving the true overage percentage in tray, pop-out, provider sidebar, and settings details.
+
+---
+
+## [Windows] 0.33.0 - 2026-06-11
+
+### Added
+- Add Japanese as a selectable interface language in the Tauri Settings UI.
+
+### Changed
+- Port upstream CodexBar 0.33.0 provider and cost-accounting fixes into the Windows/Tauri Rust backend.
+- Route provider HTTP clients through a shared same-origin redirect policy so credentialed requests do not follow cross-origin redirects with provider auth context.
+- Update Claude local cost pricing for Fable 5, Opus 4.6, Sonnet 4.6, and 1-hour cache writes.
+
+### Fixed
+- Avoid showing Doubao API keys as falsely exhausted when Ark returns successful zero-remaining request-limit headers that are not reliable quota state.
+- Preserve existing Copilot unlimited-chat and Antigravity untracked-quota behavior from the upstream 0.33.0 cycle.
+
+---
+
+## [Windows] 0.32.9 - 2026-06-11
+
+### Fixed
+- Apply Display settings changes to the native tray immediately after saving, including tray metric mode, highest-usage selection, percent icon mode, provider metric preferences, and enabled-provider changes.
+- Make the **Show provider icons** setting affect the tray and pop-out provider switcher grids instead of only being stored.
+- Make **Show percent in tray** render a real numeric tray icon.
+- Make **Tray icon mode** affect native tray status rows by switching between a single summary row and per-provider rows.
+- Shorten native tray tooltip reset text to relative countdowns such as `resets in 2h 05m` and bound long tooltip lines so Windows does not trim provider status text mid-line.
+
+---
+
+## [Windows] 0.32.8 - 2026-06-09
+
+### Changed
+- Install `codexbar.exe` as the console CLI and `codexbar-desktop.exe` as the tray app so Start Menu shortcuts launch the desktop UI while terminal diagnostics print real output.
+- Build the console CLI during every Windows release packaging run.
+
+### Fixed
+- Run provider auto-refresh from the Tauri backend even when the tray panel is closed and the floating bar is disabled.
+- Keep `refresh_interval_secs = 0` as manual-only and prevent overlapping background refreshes.
+- Extend Windows smoke install validation to prove installed CLI `--version` and `--help` output.
+
+---
+
+## [Windows] 0.32.7 - 2026-06-08
+
+### Added
+- Expand Alibaba Coding Plan support with selectable Singapore, US, Germany, Hong Kong, and China Mainland regions.
+
+### Changed
+- Route Alibaba Coding Plan cookies, dashboard links, gateway requests, and SEC_TOKEN caching through a canonical region model so region behavior stays consistent.
+
+### Fixed
+- Fix Cursor usage percentages by trusting Cursor's `totalPercentUsed`, `autoPercentUsed`, and `apiPercentUsed` fields as 0-100 percentages instead of recalculating or multiplying them.
+- Keep Cursor bonus-credit breakdown totals from distorting fallback percentage calculations.
+
+---
+
+## [Windows] 0.32.6 - 2026-06-05
+
+### Changed
+- Reveal the Windows tray panel only after the frontend completes its first layout pass, avoiding the blank backing-frame flash on tray startup.
+- Lazy-load heavier secondary surfaces so first tray activation does not compete with Settings, Pop Out, or Floating Bar module startup.
+- Limit concurrent provider refreshes and emit provider-updated events after releasing the provider-cache lock to reduce refresh contention.
+- Keep tray and pop-out provider ordering aligned with the configured provider catalog order.
+
+### Fixed
+- Restore the full bootstrap bridge contract for surface modes, commands, and events instead of exposing test-only descriptors.
+- Keep dense tray overview layout visible while provider data is still loading, using stable placeholders instead of waiting indefinitely for the first providers to fetch.
+- Handle surface-state mutex errors at the Tauri command boundary instead of panicking.
+- Fix NanoGPT monthly-only usage parsing.
+
+---
+
+## [Windows] 0.32.5 - 2026-06-02
+
+### Fixed
+- Treat GitHub Copilot Business token-based billing zero-entitlement quota rows as unavailable instead of showing misleading `0% used` usage.
+- Keep percent-only Copilot quota snapshots and fully consumed positive-entitlement quotas working while dropping only explicit zero-entitlement placeholders.
+- Prioritize OpenAI Web login and Cloudflare blocking states over public-route detection so blocked dashboard responses do not get misclassified.
+
+### Added
+- Per-day Claude cost history in provider detail charts — scans local Claude JSONL session logs and aggregates token costs by date (`parse_claude_file_daily`), matching the existing Codex per-day cost chart.
+
+### Changed
+- Complete Chinese (Simplified) i18n locale review — all 33 REVIEW-i18n markers finalized with reviewed translations across `rust/src/locale/chinese.rs` and `apps/desktop-tauri/src/i18n/keys.ts`.
+- Merge upstream main into dev — aligns README screenshots and incorporates upstream documentation updates.
+
+### Fixed
+- Resolve syntax and type errors from manual merge conflict resolution: duplicate closing delimiters in `cookies.rs` and `String` vs `&str` type mismatches in `minimax/mod.rs`.
 
 ---
 

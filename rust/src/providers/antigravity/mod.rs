@@ -130,7 +130,7 @@ impl AntigravityProvider {
         // SECURITY: TLS verification is disabled because the local language server uses a
         // self-signed certificate. This is scoped to 127.0.0.1 only; we confirm a port by
         // checking that it answers the expected gRPC endpoint.
-        let client = reqwest::Client::builder()
+        let client = crate::core::credentialed_http_client_builder()
             .timeout(std::time::Duration::from_secs(2))
             .danger_accept_invalid_certs(true)
             .redirect(reqwest::redirect::Policy::none())
@@ -235,7 +235,7 @@ impl AntigravityProvider {
         let api_port = Self::find_api_port(process_info.extension_port, process_info.pid).await?;
 
         // SECURITY: TLS verification disabled for local language server (see find_api_port)
-        let client = reqwest::Client::builder()
+        let client = crate::core::credentialed_http_client_builder()
             .timeout(std::time::Duration::from_secs(8))
             .danger_accept_invalid_certs(true)
             .redirect(reqwest::redirect::Policy::none())
@@ -624,10 +624,8 @@ fn model_label(config: &ModelConfig) -> &str {
         &config.label
     } else if let Some(model_id) = config.model_id.as_deref() {
         model_id
-    } else if let Some(id) = config.id.as_deref() {
-        id
     } else {
-        ""
+        config.id.as_deref().unwrap_or_default()
     }
 }
 

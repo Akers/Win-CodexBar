@@ -109,21 +109,36 @@ impl CodexPricing {
 struct ClaudePricing;
 
 impl ClaudePricing {
-    fn cost_usd(model: &str, input: u64, cache_create: u64, cache_read: u64, output: u64) -> f64 {
-        let (input_price, cache_create_price, cache_read_price, output_price) =
-            match model.to_lowercase().as_str() {
-                m if m.contains("opus") => (15.00, 18.75, 1.50, 75.00),
-                m if m.contains("sonnet") => (3.00, 3.75, 0.30, 15.00),
-                m if m.contains("haiku") => (0.25, 0.30, 0.03, 1.25),
-                _ => (3.00, 3.75, 0.30, 15.00), // Default to Sonnet
-            };
+    fn cost_usd_with_cache_ttl(
+        model: &str,
+        input: u64,
+        cache_create: u64,
+        cache_create_1h: u64,
+        cache_read: u64,
+        output: u64,
+    ) -> f64 {
+        let (input_price, cache_create_price, cache_read_price, output_price) = match model
+            .to_lowercase()
+            .as_str()
+        {
+            m if m.contains("fable-5") => (10.00, 12.50, 1.00, 50.00),
+            m if m.contains("opus-4-6") || m.contains("opus_4_6") => (5.00, 6.25, 0.50, 25.00),
+            m if m.contains("sonnet-4-6") || m.contains("sonnet_4_6") => (3.00, 3.75, 0.30, 15.00),
+            m if m.contains("opus") => (15.00, 18.75, 1.50, 75.00),
+            m if m.contains("sonnet") => (3.00, 3.75, 0.30, 15.00),
+            m if m.contains("haiku") => (0.25, 0.30, 0.03, 1.25),
+            _ => (3.00, 3.75, 0.30, 15.00), // Default to Sonnet
+        };
 
+        let cache_create_1h = cache_create_1h.min(cache_create);
+        let cache_create_5m = cache_create.saturating_sub(cache_create_1h);
         let input_cost = (input as f64 / 1_000_000.0) * input_price;
-        let cache_create_cost = (cache_create as f64 / 1_000_000.0) * cache_create_price;
+        let cache_create_cost = (cache_create_5m as f64 / 1_000_000.0) * cache_create_price;
+        let cache_create_1h_cost = (cache_create_1h as f64 / 1_000_000.0) * input_price * 2.0;
         let cache_read_cost = (cache_read as f64 / 1_000_000.0) * cache_read_price;
         let output_cost = (output as f64 / 1_000_000.0) * output_price;
 
-        input_cost + cache_create_cost + cache_read_cost + output_cost
+        input_cost + cache_create_cost + cache_create_1h_cost + cache_read_cost + output_cost
     }
 }
 
@@ -293,7 +308,7 @@ impl CostScanner {
 
     fn parse_codex_file(
         &self,
-        path: &PathBuf,
+        path: &Path,
         summary: &mut CostSummary,
         cancel: Option<&AtomicBool>,
     ) {
@@ -394,6 +409,8 @@ impl CostScanner {
                             .get("cache_creation_input_tokens")
                             .and_then(|t| t.as_u64())
                             .unwrap_or(0);
+                        let cache_create_1h =
+                            claude_one_hour_cache_creation_tokens(usage, cache_create);
                         let cache_read = usage
                             .get("cache_read_input_tokens")
                             .and_then(|t| t.as_u64())
@@ -403,8 +420,14 @@ impl CostScanner {
                         summary.output_tokens += output;
                         summary.cached_tokens += cache_create + cache_read;
 
-                        let cost =
-                            ClaudePricing::cost_usd(model, input, cache_create, cache_read, output);
+                        let cost = ClaudePricing::cost_usd_with_cache_ttl(
+                            model,
+                            input,
+                            cache_create,
+                            cache_create_1h,
+                            cache_read,
+                            output,
+                        );
                         session_cost += cost;
                         has_tokens = true;
 
@@ -427,6 +450,15 @@ impl CostScanner {
             summary.sessions_count += 1;
         }
     }
+}
+
+fn claude_one_hour_cache_creation_tokens(usage: &serde_json::Value, total: u64) -> u64 {
+    usage
+        .get("cache_creation")
+        .and_then(|cache_creation| cache_creation.get("ephemeral_1h_input_tokens"))
+        .and_then(|tokens| tokens.as_u64())
+        .unwrap_or(0)
+        .min(total)
 }
 
 type CodexDays = HashMap<String, HashMap<String, Vec<i32>>>;
@@ -505,6 +537,96 @@ pub fn has_cost_usage_sources() -> bool {
     scanner.get_codex_sessions_dir().exists() || scanner.get_claude_projects_dir().exists()
 }
 
+/// Parse a Claude JSONL file and return per-day costs keyed by YYYY-MM-DD
+fn parse_claude_file_daily(path: &Path, days: u32) -> HashMap<String, f64> {
+    let mut daily: HashMap<String, f64> = HashMap::new();
+
+    let today = Utc::now().date_naive();
+    let start_date = today - Duration::days(days as i64);
+
+    let file = match File::open(path) {
+        Ok(f) => f,
+        Err(_) => return daily,
+    };
+
+    let reader = BufReader::new(file);
+
+    for line in reader.lines().map_while(Result::ok) {
+        if let Ok(event) = serde_json::from_str::<serde_json::Value>(&line) {
+            // Extract timestamp and bucket by day
+            let date_str = match event.get("timestamp").and_then(|t| t.as_str()) {
+                Some(ts) => {
+                    if let Ok(dt) = chrono::DateTime::parse_from_rfc3339(ts) {
+                        let date = dt.date_naive();
+                        if date < start_date || date > today {
+                            continue;
+                        }
+                        date.format("%Y-%m-%d").to_string()
+                    } else {
+                        continue;
+                    }
+                }
+                None => continue,
+            };
+
+            // Look for assistant messages with usage
+            if event.get("type").and_then(|t| t.as_str()) == Some("assistant")
+                && let Some(message) = event.get("message")
+            {
+                let model = message
+                    .get("model")
+                    .and_then(|m| m.as_str())
+                    .unwrap_or("claude-3-5-sonnet");
+
+                if let Some(usage) = message.get("usage") {
+                    let input = usage
+                        .get("input_tokens")
+                        .and_then(|t| t.as_u64())
+                        .unwrap_or(0);
+                    let output = usage
+                        .get("output_tokens")
+                        .and_then(|t| t.as_u64())
+                        .unwrap_or(0);
+                    let cache_create = usage
+                        .get("cache_creation_input_tokens")
+                        .and_then(|t| t.as_u64())
+                        .unwrap_or(0);
+                    let cache_read = usage
+                        .get("cache_read_input_tokens")
+                        .and_then(|t| t.as_u64())
+                        .unwrap_or(0);
+
+                    let cost =
+                        ClaudePricing::cost_usd(model, input, cache_create, cache_read, output);
+                    *daily.entry(date_str).or_insert(0.0) += cost;
+                }
+            }
+        }
+    }
+
+    daily
+}
+
+/// Recursively walk Claude projects directory and accumulate per-day costs
+fn scan_claude_dir_daily(dir: &Path, days: u32, daily_costs: &mut HashMap<String, f64>) {
+    let entries = match fs::read_dir(dir) {
+        Ok(e) => e,
+        Err(_) => return,
+    };
+
+    for entry in entries.flatten() {
+        let path = entry.path();
+        if path.is_dir() {
+            scan_claude_dir_daily(&path, days, daily_costs);
+        } else if path.extension().is_some_and(|e| e == "jsonl") {
+            let file_daily = parse_claude_file_daily(&path, days);
+            for (date, cost) in file_daily {
+                *daily_costs.entry(date).or_insert(0.0) += cost;
+            }
+        }
+    }
+}
+
 /// Get daily cost history for the last N days
 /// Returns Vec of (date_string, cost_usd) sorted by date
 pub fn get_daily_cost_history(provider: &str, days: u32) -> Vec<(String, f64)> {
@@ -549,15 +671,9 @@ pub fn get_daily_cost_history(provider: &str, days: u32) -> Vec<(String, f64)> {
             }
         }
         "claude" => {
-            // For Claude, we need to check file modification times
-            // This is more complex, so we'll approximate using the summary for now
-            let summary = scanner.scan_claude();
-            if summary.total_cost_usd > 0.0 && days > 0 {
-                // Distribute evenly for now (TODO: actual daily breakdown)
-                let daily = summary.total_cost_usd / days as f64;
-                for (_, cost) in daily_costs.iter_mut() {
-                    *cost = daily;
-                }
+            let projects_dir = scanner.get_claude_projects_dir();
+            if projects_dir.exists() {
+                scan_claude_dir_daily(&projects_dir, days, &mut daily_costs);
             }
         }
         _ => {}
@@ -611,8 +727,42 @@ mod tests {
     #[test]
     fn test_claude_pricing() {
         // Test Sonnet pricing: $3/1M input, $15/1M output
-        let cost = ClaudePricing::cost_usd("claude-3-5-sonnet", 1_000_000, 0, 0, 1_000_000);
+        let cost = ClaudePricing::cost_usd_with_cache_ttl(
+            "claude-3-5-sonnet",
+            1_000_000,
+            0,
+            0,
+            0,
+            1_000_000,
+        );
         assert!((cost - 18.0).abs() < 0.01);
+    }
+
+    #[test]
+    fn test_claude_fable_5_pricing() {
+        let cost = ClaudePricing::cost_usd_with_cache_ttl("claude-fable-5", 100, 10, 0, 20, 5);
+        let expected = (100.0 / 1_000_000.0) * 10.00
+            + (10.0 / 1_000_000.0) * 12.50
+            + (20.0 / 1_000_000.0) * 1.00
+            + (5.0 / 1_000_000.0) * 50.00;
+        assert!((cost - expected).abs() < f64::EPSILON);
+    }
+
+    #[test]
+    fn test_claude_one_hour_cache_write_pricing() {
+        let cost = ClaudePricing::cost_usd_with_cache_ttl("claude-fable-5", 100, 30, 20, 20, 5);
+        let expected = (100.0 / 1_000_000.0) * 10.00
+            + (10.0 / 1_000_000.0) * 12.50
+            + (20.0 / 1_000_000.0) * 20.00
+            + (20.0 / 1_000_000.0) * 1.00
+            + (5.0 / 1_000_000.0) * 50.00;
+        assert!((cost - expected).abs() < f64::EPSILON);
+    }
+
+    #[test]
+    fn test_claude_sonnet_46_uses_standard_full_context_pricing() {
+        let cost = ClaudePricing::cost_usd_with_cache_ttl("claude-sonnet-4-6", 240_000, 0, 0, 0, 0);
+        assert!((cost - 0.72).abs() < 0.001);
     }
 
     #[test]
@@ -652,6 +802,70 @@ mod tests {
             Some(140)
         );
         assert!(scan_codex_file_cost(&path) > 0.0);
+        let _ = std::fs::remove_file(&path);
+    }
+
+    #[test]
+    fn test_parse_claude_file_daily_buckets_by_timestamp() {
+        let path = std::env::temp_dir().join(format!(
+            "codexbar-claude-daily-test-{}.jsonl",
+            std::process::id()
+        ));
+        let mut file = File::create(&path).unwrap();
+
+        let today = Utc::now().date_naive();
+        let yesterday = today - Duration::days(1);
+        let today_str = today.format("%Y-%m-%d").to_string();
+        let yesterday_str = yesterday.format("%Y-%m-%d").to_string();
+
+        // Today: 1M input + 0.5M output = $3.00 + $7.50 = $10.50 (Sonnet pricing)
+        writeln!(
+            file,
+            r#"{{"timestamp":"{}T10:00:00Z","type":"assistant","message":{{"model":"claude-3-5-sonnet","usage":{{"input_tokens":1000000,"output_tokens":500000}}}}}}"#,
+            today_str
+        )
+        .unwrap();
+
+        // Yesterday: 1M input + 1M output = $3.00 + $15.00 = $18.00 (Sonnet pricing)
+        writeln!(
+            file,
+            r#"{{"timestamp":"{}T10:00:00Z","type":"assistant","message":{{"model":"claude-3-5-sonnet","usage":{{"input_tokens":1000000,"output_tokens":1000000}}}}}}"#,
+            yesterday_str
+        )
+        .unwrap();
+
+        // An event outside the range (8 days ago) should be excluded
+        let eight_days_ago = today - Duration::days(8);
+        let eight_days_str = eight_days_ago.format("%Y-%m-%d").to_string();
+        writeln!(
+            file,
+            r#"{{"timestamp":"{}T10:00:00Z","type":"assistant","message":{{"model":"claude-3-5-opus","usage":{{"input_tokens":1000000,"output_tokens":1000000}}}}}}"#,
+            eight_days_str
+        )
+        .unwrap();
+
+        drop(file);
+
+        let daily = parse_claude_file_daily(&path, 7);
+
+        assert!(
+            (daily.get(&today_str).copied().unwrap_or(0.0) - 10.5).abs() < 0.01,
+            "Today's cost should be $10.50, got {}",
+            daily.get(&today_str).copied().unwrap_or(0.0)
+        );
+        assert!(
+            (daily.get(&yesterday_str).copied().unwrap_or(0.0) - 18.0).abs() < 0.01,
+            "Yesterday's cost should be $18.00, got {}",
+            daily.get(&yesterday_str).copied().unwrap_or(0.0)
+        );
+        // Eight days ago should NOT be in the results (outside 7-day window)
+        assert!(
+            !daily.contains_key(&eight_days_str),
+            "Events outside the days range should be excluded"
+        );
+        // Only 2 days should have entries
+        assert_eq!(daily.len(), 2);
+
         let _ = std::fs::remove_file(&path);
     }
 }

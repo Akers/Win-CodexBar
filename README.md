@@ -22,7 +22,7 @@ Win-CodexBar is a Windows system-tray app for keeping AI coding-tool usage visib
 - **Provider settings** for source selection, credentials, cookie import, token accounts, API keys, regions, and tray-display preferences.
 - **Windows credential protection** for app-managed API keys, manual cookies, and token accounts, using user-scoped DPAPI where available.
 - **Browser cookie import** for Chrome, Edge, Brave, and Firefox, kept opt-in per provider.
-- **Local CLI** for scripting usage, cost, config, diagnostics, and loopback integrations.
+- **Installed local CLI** for scripting usage, cost, config, diagnostics, and loopback integrations.
 - **Installer + portable builds** with WebView2 runtime bootstrap, VC++ runtime bootstrap, and SHA-256 checksum files.
 
 ## What's Different in This Fork
@@ -87,7 +87,7 @@ For Claude, browser cookies/sessionKey are preferred because they match Claude's
 
 ## Latest Release
 
-**v0.32.4** fixes OpenRouter credits fetching by using the canonical `/api/v1/credits` endpoint instead of the broken `/api/v1/auth/credits` path. It also aligns OpenRouter key introspection with `/api/v1/key` and adds regression tests for both URL paths.
+**v0.33.2** fixes tray-panel dismissal so the popover closes on focus loss or Escape, without immediately reopening from the same tray click.
 
 See the full history in [CHANGELOG.md](CHANGELOG.md).
 
@@ -167,20 +167,24 @@ Useful dev flags:
 CLI examples:
 
 ```bash
+codexbar --help
+codexbar diagnose --pretty
 codexbar usage -p claude
 codexbar usage -p all
 codexbar cost -p codex
 ```
+
+Installer builds include `codexbar.exe` as the console CLI and `codexbar-desktop.exe` as the tray app. Start Menu shortcuts launch the desktop app; terminal commands use `codexbar.exe`.
 
 ## Release Builds
 
 For local Windows release builds, use the cached release builder:
 
 ```powershell
-.\scripts\windows-release-build.ps1 -Ref v0.32.4 -SmokeInstall
+.\scripts\windows-release-build.ps1 -Ref v0.33.2 -SmokeInstall
 ```
 
-The script builds the real Tauri release binary, verifies signed installer dependencies, packages with Inno Setup, writes installer/portable assets, writes SHA-256 sidecars, and can run a silent install/uninstall smoke test.
+The script builds the real Tauri release binary plus the console CLI, verifies signed installer dependencies, packages with Inno Setup, writes installer/portable assets, writes SHA-256 sidecars, and can run a silent install/uninstall smoke test.
 
 More release automation notes live in [docs/release/ci-cd.md](docs/release/ci-cd.md).
 

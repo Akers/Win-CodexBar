@@ -429,7 +429,6 @@ impl LocaleKey {
             LocaleKey::CriticalUsageWarningHelper => "当用量超过该百分比时显示严重告警。",
             LocaleKey::GlobalShortcutFieldLabel => "全局快捷键",
             LocaleKey::GlobalShortcutToggleHelper => "用于切换托盘面板的组合键。",
-            // REVIEW-i18n: Phase 7 shortcut-capture + notification test labels.
             LocaleKey::ShortcutRecordButton => "录制",
             LocaleKey::ShortcutRecordingLabel => "录制中…",
             LocaleKey::ShortcutRecordingHint => "按下修饰键 + 任意键。Esc 取消，Backspace 清除。",
@@ -479,9 +478,9 @@ impl LocaleKey {
             LocaleKey::ShowDebugSettingsHelper => "在界面中显示故障排查和开发者相关选项。",
             LocaleKey::LanguageEnglishOption => "English",
             LocaleKey::LanguageChineseOption => "中文",
+            LocaleKey::LanguageJapaneseOption => "日本語",
 
             // Tauri desktop shell — Theme (Phase 12)
-            // REVIEW-i18n: ZH translations for Phase 12 theme labels.
             LocaleKey::SectionTheme => "外观",
             LocaleKey::ThemeLabel => "主题",
             LocaleKey::ThemeHelper => "自动跟随系统配色方案；浅色/深色可手动覆盖。",
@@ -536,7 +535,6 @@ impl LocaleKey {
             LocaleKey::DetailChartCost => "费用（30 天）",
             LocaleKey::DetailChartCredits => "已用额度（30 天）",
             LocaleKey::DetailChartUsageBreakdown => "按服务划分的用量（30 天）",
-            // REVIEW-i18n
             LocaleKey::DetailChartEmpty => "暂无图表数据。",
             LocaleKey::DetailUpdatedPrefix => "更新于",
 
@@ -553,7 +551,7 @@ impl LocaleKey {
             LocaleKey::BannerRetry => "重试",
 
             // Tauri desktop shell — providers sidebar (Phase 6a)
-            LocaleKey::ProviderSidebarSearch => "搜索提供商",
+            LocaleKey::ProviderSidebarSearch => "搜索",
             LocaleKey::ProviderSidebarClearSearch => "清除提供商搜索",
             LocaleKey::ProviderSidebarNoMatches => "没有匹配的提供商",
             LocaleKey::ProviderSidebarReorderHint => "拖动以重新排序",
@@ -603,7 +601,7 @@ impl LocaleKey {
             LocaleKey::CredsKiroHelperMissing => "kiro-cli：未在 PATH 或常见安装位置找到。",
             LocaleKey::CredsOpenAiHistoryHelp => "启用历史跟踪以查看一段时间内的使用情况。",
 
-            // Tauri desktop shell — Token accounts (Phase 6e, review)
+            // Tauri desktop shell — Token accounts (Phase 6e)
             LocaleKey::TokenAccountActive => "活动",
             LocaleKey::TokenAccountSetActive => "设为活动",
             LocaleKey::TokenAccountRemove => "移除",
@@ -622,7 +620,6 @@ impl LocaleKey {
             LocaleKey::TokenAccountInlineSummary => "令牌账户",
 
             // Phase 9 - Tray / pop-out pace badges + countdowns
-            // REVIEW-i18n: short badge labels for usage pace categories
             LocaleKey::TrayPaceBadgeSlow => "缓慢",
             LocaleKey::TrayPaceBadgeSteady => "稳定",
             LocaleKey::TrayPaceBadgeRacing => "加速",

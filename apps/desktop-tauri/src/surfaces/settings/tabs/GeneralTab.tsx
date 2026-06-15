@@ -1,7 +1,8 @@
 import { useCallback, useState } from "react";
 import { useLocale } from "../../../hooks/useLocale";
-import { closeSettingsWindow, playNotificationSound } from "../../../lib/tauri";
+import { playNotificationSound } from "../../../lib/tauri";
 import { Field, NumberInput, Select, Toggle } from "../../../components/FormControls";
+import type { Language } from "../../../types/bridge";
 import type { TabProps } from "../../Settings";
 
 const REFRESH_CADENCE_OPTIONS: { value: string; label: string }[] = [
@@ -23,12 +24,26 @@ export default function GeneralTab({ settings, set, saving }: TabProps) {
     window.setTimeout(() => setPlayingSound(false), 1500);
   }, []);
 
-  const handleQuit = useCallback(() => {
-    void closeSettingsWindow();
-  }, []);
-
   return (
     <>
+      <section className="settings-section">
+        <h3 className="settings-section__title">{t("SectionLanguage")}</h3>
+        <div className="settings-section__group">
+          <Field label={t("InterfaceLanguage")}>
+            <Select
+              value={settings.uiLanguage}
+              disabled={saving}
+              options={[
+                { value: "english", label: t("LanguageEnglishOption") },
+                { value: "chinese", label: t("LanguageChineseOption") },
+                { value: "japanese", label: t("LanguageJapaneseOption") },
+              ]}
+              onChange={(v) => set({ uiLanguage: v as Language })}
+            />
+          </Field>
+        </div>
+      </section>
+
       <section className="settings-section">
         <h3 className="settings-section__title">{t("StartupSettings")}</h3>
         <div className="settings-section__group">
@@ -152,19 +167,6 @@ export default function GeneralTab({ settings, set, saving }: TabProps) {
               onChange={(v) => set({ refreshIntervalSecs: Number(v) })}
             />
           </Field>
-        </div>
-      </section>
-
-      {/* ── Quit ─────────────────────────────────────────────────── */}
-      <section className="settings-section">
-        <div className="settings-quit-row">
-          <button
-            type="button"
-            className="credential-btn credential-btn--primary"
-            onClick={handleQuit}
-          >
-            {t("TrayQuit")}
-          </button>
         </div>
       </section>
     </>

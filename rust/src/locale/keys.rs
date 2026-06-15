@@ -567,6 +567,7 @@ impl LocaleKey {
         ),
         (LocaleKey::LanguageEnglishOption, "LanguageEnglishOption"),
         (LocaleKey::LanguageChineseOption, "LanguageChineseOption"),
+        (LocaleKey::LanguageJapaneseOption, "LanguageJapaneseOption"),
         (LocaleKey::SectionTheme, "SectionTheme"),
         (LocaleKey::ThemeLabel, "ThemeLabel"),
         (LocaleKey::ThemeHelper, "ThemeHelper"),
@@ -658,6 +659,15 @@ impl LocaleKey {
             "BannerUpdateFailedPrefix",
         ),
         (LocaleKey::BannerRetry, "BannerRetry"),
+        (LocaleKey::ProviderSidebarSearch, "ProviderSidebarSearch"),
+        (
+            LocaleKey::ProviderSidebarClearSearch,
+            "ProviderSidebarClearSearch",
+        ),
+        (
+            LocaleKey::ProviderSidebarNoMatches,
+            "ProviderSidebarNoMatches",
+        ),
         (
             LocaleKey::ProviderSidebarReorderHint,
             "ProviderSidebarReorderHint",

@@ -457,7 +457,6 @@ impl LocaleKey {
             }
             LocaleKey::GlobalShortcutFieldLabel => "Global shortcut",
             LocaleKey::GlobalShortcutToggleHelper => "Key combination to toggle the tray panel.",
-            // REVIEW-i18n: Phase 7 shortcut-capture + notification test labels.
             LocaleKey::ShortcutRecordButton => "Record",
             LocaleKey::ShortcutRecordingLabel => "Recording…",
             LocaleKey::ShortcutRecordingHint => {
@@ -517,6 +516,7 @@ impl LocaleKey {
             }
             LocaleKey::LanguageEnglishOption => "English",
             LocaleKey::LanguageChineseOption => "中文",
+            LocaleKey::LanguageJapaneseOption => "日本語",
 
             // Tauri desktop shell — Theme (Phase 12)
             LocaleKey::SectionTheme => "Appearance",
@@ -591,7 +591,7 @@ impl LocaleKey {
             LocaleKey::BannerRetry => "Retry",
 
             // Tauri desktop shell — providers sidebar (Phase 6a)
-            LocaleKey::ProviderSidebarSearch => "Search providers",
+            LocaleKey::ProviderSidebarSearch => "Search",
             LocaleKey::ProviderSidebarClearSearch => "Clear provider search",
             LocaleKey::ProviderSidebarNoMatches => "No matching providers",
             LocaleKey::ProviderSidebarReorderHint => "Drag to reorder",

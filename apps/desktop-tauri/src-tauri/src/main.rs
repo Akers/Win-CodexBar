@@ -2,6 +2,7 @@
 
 use std::time::Duration;
 
+mod auto_refresh;
 mod commands;
 mod events;
 mod floatbar;
@@ -22,6 +23,15 @@ use state::AppState;
 use surface::SurfaceMode;
 use surface_target::SurfaceTarget;
 use tauri::Manager;
+
+const PROOF_ACTIVATION_DELAY: Duration = Duration::from_millis(0);
+const VISIBLE_START_ACTIVATION_DELAY: Duration = Duration::from_millis(0);
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+struct LaunchBehavior {
+    open_tray_panel_at_start: bool,
+    suppress_blur_dismiss: bool,
+}
 
 fn should_hide_close_request(mode: SurfaceMode) -> bool {
     matches!(
@@ -46,13 +56,28 @@ where
     })
 }
 
+fn launch_behavior<I, S>(force_visible: bool, args: I) -> LaunchBehavior
+where
+    I: IntoIterator<Item = S>,
+    S: AsRef<str>,
+{
+    LaunchBehavior {
+        open_tray_panel_at_start: force_visible || should_open_tray_panel_from_args(args),
+        suppress_blur_dismiss: force_visible,
+    }
+}
+
+fn should_suppress_blur_dismiss(launch: LaunchBehavior, proof_mode: bool) -> bool {
+    launch.suppress_blur_dismiss || proof_mode
+}
+
 fn main() {
     codexbar::logging::init(false, false).expect("failed to initialize logging");
 
     let proof_config = proof_harness::ProofConfig::from_env();
     let is_proof_mode = proof_config.is_some();
-    let force_start_visible = std::env::var_os("CODEXBAR_START_VISIBLE").is_some()
-        || should_open_tray_panel_from_args(std::env::args().skip(1));
+    let force_start_visible = std::env::var_os("CODEXBAR_START_VISIBLE").is_some();
+    let launch = launch_behavior(force_start_visible, std::env::args().skip(1));
 
     let mut initial_state = AppState::new();
     initial_state.proof_config = proof_config;
@@ -76,6 +101,8 @@ fn main() {
             commands::get_settings_snapshot,
             commands::update_settings,
             commands::set_surface_mode,
+            commands::dismiss_tray_panel,
+            commands::reveal_tray_panel_window,
             commands::open_settings_window,
             commands::close_settings_window,
             commands::get_current_surface_mode,
@@ -154,19 +181,20 @@ fn main() {
             tray_bridge::setup(app)?;
             shortcut_bridge::register(app.handle());
             floatbar::install(app.handle());
+            auto_refresh::install(app.handle().clone());
 
-            // In proof mode, show the target surface after a brief delay
-            // so WebView2 has time to initialize.
+            // The frontend receives surface state before show, so fixed
+            // startup sleeps only make tray activation feel slower.
             if is_proof_mode {
                 let app_handle = app.handle().clone();
                 tauri::async_runtime::spawn(async move {
-                    tokio::time::sleep(Duration::from_millis(500)).await;
+                    tokio::time::sleep(PROOF_ACTIVATION_DELAY).await;
                     proof_harness::activate(&app_handle);
                 });
-            } else if force_start_visible {
+            } else if launch.open_tray_panel_at_start {
                 let app = app.handle().clone();
                 tauri::async_runtime::spawn(async move {
-                    tokio::time::sleep(Duration::from_millis(250)).await;
+                    tokio::time::sleep(VISIBLE_START_ACTIVATION_DELAY).await;
                     let _ = shell::reopen_to_target(
                         &app,
                         SurfaceMode::TrayPanel,
@@ -191,7 +219,10 @@ fn main() {
                 tauri::WindowEvent::Focused(false) => {
                     // Suppress blur-dismiss in proof mode so the window stays
                     // visible for automated screenshot capture.
-                    if force_start_visible || proof_harness::is_proof_mode(window.app_handle()) {
+                    if should_suppress_blur_dismiss(
+                        launch,
+                        proof_harness::is_proof_mode(window.app_handle()),
+                    ) {
                         return;
                     }
                     // Grace period: ignore blur within 500ms of showing the panel.
@@ -203,10 +234,19 @@ fn main() {
                     {
                         return;
                     }
-                    // Blur in TrayPanel mode → auto-hide.
-                    let _ = shell::hide_to_tray_if_current(window.app_handle(), |mode| {
-                        mode == SurfaceMode::TrayPanel
-                    });
+                    // Blur in TrayPanel mode → auto-hide. Record successful
+                    // dismissals so the same tray click cannot reopen it.
+                    if matches!(
+                        shell::hide_to_tray_if_current(window.app_handle(), |mode| {
+                            mode == SurfaceMode::TrayPanel
+                        }),
+                        Ok(Some(_))
+                    ) && let Some(st) = window.app_handle().try_state::<Mutex<AppState>>()
+                    {
+                        st.lock()
+                            .unwrap()
+                            .mark_blur_dismissed(std::time::Instant::now());
+                    }
                 }
                 tauri::WindowEvent::Moved(_) | tauri::WindowEvent::Resized(_) => {
                     // Capture geometry for surfaces eligible for persistence
@@ -259,5 +299,41 @@ mod tests {
     #[test]
     fn unrelated_launch_args_do_not_open_tray_panel() {
         assert!(!should_open_tray_panel_from_args(["usage", "-p", "claude"]));
+    }
+
+    #[test]
+    fn menubar_launch_does_not_suppress_blur_dismiss() {
+        assert_eq!(
+            launch_behavior(false, ["menubar"]),
+            LaunchBehavior {
+                open_tray_panel_at_start: true,
+                suppress_blur_dismiss: false,
+            }
+        );
+    }
+
+    #[test]
+    fn automation_launch_opens_and_suppresses_blur_dismiss() {
+        let launch = launch_behavior(true, std::iter::empty::<&str>());
+        assert_eq!(
+            launch,
+            LaunchBehavior {
+                open_tray_panel_at_start: true,
+                suppress_blur_dismiss: true,
+            }
+        );
+        assert!(should_suppress_blur_dismiss(launch, false));
+    }
+
+    #[test]
+    fn proof_mode_suppresses_blur_dismiss() {
+        let launch = launch_behavior(false, std::iter::empty::<&str>());
+        assert!(should_suppress_blur_dismiss(launch, true));
+    }
+
+    #[test]
+    fn visible_start_delays_stay_short() {
+        assert_eq!(PROOF_ACTIVATION_DELAY, Duration::ZERO);
+        assert_eq!(VISIBLE_START_ACTIVATION_DELAY, Duration::ZERO);
     }
 }

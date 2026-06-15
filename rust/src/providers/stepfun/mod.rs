@@ -86,7 +86,7 @@ impl StepFunProvider {
                 dashboard_url: Some("https://platform.stepfun.com/dashboard"),
                 status_page_url: None,
             },
-            client: Client::builder()
+            client: crate::core::credentialed_http_client_builder()
                 .timeout(std::time::Duration::from_secs(15))
                 .build()
                 .unwrap_or_else(|_| Client::new()),
@@ -162,10 +162,10 @@ impl StepFunProvider {
     }
 
     fn persist_refreshed_token(&self, token: &str) {
-        if let Ok(entry) = keyring::Entry::new(STEPFUN_CREDENTIAL_TARGET, "api_key") {
-            if let Err(error) = entry.set_password(token) {
-                tracing::debug!("Could not persist refreshed StepFun token: {error}");
-            }
+        if let Ok(entry) = keyring::Entry::new(STEPFUN_CREDENTIAL_TARGET, "api_key")
+            && let Err(error) = entry.set_password(token)
+        {
+            tracing::debug!("Could not persist refreshed StepFun token: {error}");
         }
     }
 

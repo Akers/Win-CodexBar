@@ -44,13 +44,20 @@ export default function ProvidersTab({
     setOrderedProviders(providers);
   }, [providers]);
 
-  const enabled = new Set(settings.enabledProviders);
+  const enabled = useMemo(
+    () => new Set(settings.enabledProviders),
+    [settings.enabledProviders],
+  );
 
   const toggle = (id: string, on: boolean) => {
     const next = new Set(enabled);
     if (on) next.add(id);
     else next.delete(id);
-    set({ enabledProviders: [...next].sort() });
+    set({
+      enabledProviders: orderedProviders
+        .map((provider) => provider.id)
+        .filter((providerId) => next.has(providerId)),
+    });
   };
 
   const rows: ProviderSidebarRow[] = useMemo(() => {
@@ -248,9 +255,8 @@ function providerSidebarMetric(
   if (!snap) return undefined;
   const rate = snap.primary;
   if (!rate) return undefined;
-  if (rate.isExhausted) return "100%";
   if (Number.isFinite(rate.usedPercent)) {
-    return `${Math.round(Math.min(100, rate.usedPercent))}%`;
+    return `${Math.round(Math.max(0, rate.usedPercent))}%`;
   }
   return undefined;
 }

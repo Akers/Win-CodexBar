@@ -229,15 +229,17 @@ fn test_language_defaults_to_english() {
 #[test]
 fn test_language_all_variants_available() {
     let languages = Language::all();
-    assert_eq!(languages.len(), 2);
+    assert_eq!(languages.len(), 3);
     assert!(languages.contains(&Language::English));
     assert!(languages.contains(&Language::Chinese));
+    assert!(languages.contains(&Language::Japanese));
 }
 
 #[test]
 fn test_language_display_names() {
     assert_eq!(Language::English.display_name(), "English");
     assert_eq!(Language::Chinese.display_name(), "中文");
+    assert_eq!(Language::Japanese.display_name(), "日本語");
 }
 
 #[test]
@@ -549,7 +551,7 @@ fn test_per_provider_defaults_applied() {
     let settings = Settings::default();
     assert_eq!(settings.cookie_source(ProviderId::Codex), "manual");
     assert_eq!(settings.usage_source(ProviderId::Codex), "auto");
-    assert_eq!(settings.api_region(ProviderId::Alibaba), "intl");
+    assert_eq!(settings.api_region(ProviderId::Alibaba), "singapore");
     assert_eq!(settings.api_region(ProviderId::Zai), "global");
     assert_eq!(settings.api_region(ProviderId::MiniMax), "global");
     assert!(settings.openai_web_extras(ProviderId::Codex));
