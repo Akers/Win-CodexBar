@@ -457,7 +457,6 @@ impl LocaleKey {
             }
             LocaleKey::GlobalShortcutFieldLabel => "Global shortcut",
             LocaleKey::GlobalShortcutToggleHelper => "Key combination to toggle the tray panel.",
-            // REVIEW-i18n: Phase 7 shortcut-capture + notification test labels.
             LocaleKey::ShortcutRecordButton => "Record",
             LocaleKey::ShortcutRecordingLabel => "Recording…",
             LocaleKey::ShortcutRecordingHint => {

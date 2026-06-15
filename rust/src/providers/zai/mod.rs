@@ -2,6 +2,7 @@
 //!
 //! Fetches usage data from z.ai's quota API
 //! Uses API token stored in Windows Credential Manager
+//! Supports Global and China Mainland (BigModel) regions
 
 pub mod mcp_details;
 
@@ -19,11 +20,47 @@ use crate::core::{
     RateWindow, SourceMode, UsageSnapshot,
 };
 
-/// z.ai API endpoint for quota/usage
-const ZAI_API_URL: &str = "https://api.z.ai/api/monitor/usage/quota/limit";
+/// z.ai API region
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub enum ZaiRegion {
+    Global,
+    ChinaMainland,
+}
 
-/// Windows Credential Manager target for z.ai API token
-const ZAI_CREDENTIAL_TARGET: &str = "codexbar-zai";
+impl From<&str> for ZaiRegion {
+    fn from(s: &str) -> Self {
+        match s {
+            "china" => ZaiRegion::ChinaMainland,
+            _ => ZaiRegion::Global,
+        }
+    }
+}
+
+impl ZaiRegion {
+    /// API URL for quota/usage endpoint
+    pub fn api_url(self) -> &'static str {
+        match self {
+            ZaiRegion::Global => "https://api.z.ai/api/monitor/usage/quota/limit",
+            ZaiRegion::ChinaMainland => "https://bigmodel.cn/api/monitor/usage/quota/limit",
+        }
+    }
+
+    /// Dashboard URL for the region
+    pub fn dashboard_url(self) -> &'static str {
+        match self {
+            ZaiRegion::Global => "https://z.ai/dashboard",
+            ZaiRegion::ChinaMainland => "https://bigmodel.cn/",
+        }
+    }
+
+    /// Windows Credential Manager target for the region
+    pub fn credential_target(self) -> &'static str {
+        match self {
+            ZaiRegion::Global => "codexbar-zai",
+            ZaiRegion::ChinaMainland => "codexbar-zai-china",
+        }
+    }
+}
 
 /// z.ai quota response structure
 #[derive(Debug, Deserialize)]
@@ -51,14 +88,19 @@ struct ZaiLimit {
     #[serde(rename = "type")]
     limit_type: Option<String>,
     /// Used amount
+    #[serde(default)]
     used: Option<f64>,
     /// Current value (alternative to used)
     #[serde(rename = "currentValue")]
     current_value: Option<f64>,
-    /// Total limit
+    /// Total limit (z.ai Global uses "limit"; BigModel/ChinaMainland uses "usage")
+    #[serde(alias = "usage")]
     limit: Option<f64>,
     /// Remaining amount
     remaining: Option<f64>,
+    /// Pre-computed percentage (0-100, supplied by BigModel/ChinaMainland)
+    #[serde(default)]
+    percentage: Option<f64>,
     /// Time unit enum: 1=days, 3=hours, 5=minutes, 6=weeks
     unit: Option<i32>,
     /// Number of time units in the window
@@ -92,7 +134,7 @@ impl ZaiProvider {
     }
 
     /// Get API token from ctx, Windows Credential Manager, or env
-    fn get_api_token(api_key: Option<&str>) -> Result<String, ProviderError> {
+    fn get_api_token(api_key: Option<&str>, region: ZaiRegion) -> Result<String, ProviderError> {
         // Check ctx.api_key first (from settings)
         if let Some(key) = api_key
             && !key.is_empty()
@@ -100,8 +142,10 @@ impl ZaiProvider {
             return Ok(key.to_string());
         }
 
+        let target = region.credential_target();
+
         // Try Windows Credential Manager
-        match keyring::Entry::new(ZAI_CREDENTIAL_TARGET, "api_token") {
+        match keyring::Entry::new(target, "api_token") {
             Ok(entry) => match entry.get_password() {
                 Ok(token) => Ok(token),
                 Err(_) => {
@@ -126,7 +170,8 @@ impl ZaiProvider {
 
     /// Fetch usage from z.ai API
     async fn fetch_usage_api(&self, ctx: &FetchContext) -> Result<UsageSnapshot, ProviderError> {
-        let api_token = Self::get_api_token(ctx.api_key.as_deref())?;
+        let region: ZaiRegion = ctx.api_region.as_deref().unwrap_or("global").into();
+        let api_token = Self::get_api_token(ctx.api_key.as_deref(), region)?;
 
         let client = crate::core::credentialed_http_client_builder()
             .timeout(std::time::Duration::from_secs(30))
@@ -134,7 +179,7 @@ impl ZaiProvider {
             .map_err(|e| ProviderError::Other(e.to_string()))?;
 
         let resp = client
-            .get(ZAI_API_URL)
+            .get(region.api_url())
             .header("Authorization", format!("Bearer {}", api_token))
             .header("Accept", "application/json")
             .send()
@@ -206,6 +251,11 @@ impl ZaiProvider {
 
         // Compute used percent for a limit entry
         fn compute_percent(l: &ZaiLimit) -> f64 {
+            // BigModel/ChinaMainland returns pre-computed percentage directly
+            if let Some(pct) = l.percentage {
+                return pct.clamp(0.0, 100.0);
+            }
+            // Fall back to raw-value computation (z.ai Global / legacy)
             let limit = l.limit.unwrap_or(0.0);
             if limit <= 0.0 {
                 return if l.used.unwrap_or(0.0) > 0.0 || l.current_value.unwrap_or(0.0) > 0.0 {
@@ -324,5 +374,48 @@ impl Provider for ZaiProvider {
 
     fn supports_cli(&self) -> bool {
         false
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_zai_region_from_str() {
+        assert_eq!(ZaiRegion::from("global"), ZaiRegion::Global);
+        assert_eq!(ZaiRegion::from("china"), ZaiRegion::ChinaMainland);
+        assert_eq!(ZaiRegion::from("unknown"), ZaiRegion::Global);
+        assert_eq!(ZaiRegion::from(""), ZaiRegion::Global);
+    }
+
+    #[test]
+    fn test_zai_region_api_url() {
+        assert_eq!(
+            ZaiRegion::Global.api_url(),
+            "https://api.z.ai/api/monitor/usage/quota/limit"
+        );
+        assert_eq!(
+            ZaiRegion::ChinaMainland.api_url(),
+            "https://bigmodel.cn/api/monitor/usage/quota/limit"
+        );
+    }
+
+    #[test]
+    fn test_zai_region_dashboard_url() {
+        assert_eq!(ZaiRegion::Global.dashboard_url(), "https://z.ai/dashboard");
+        assert_eq!(
+            ZaiRegion::ChinaMainland.dashboard_url(),
+            "https://bigmodel.cn/"
+        );
+    }
+
+    #[test]
+    fn test_zai_region_credential_target() {
+        assert_eq!(ZaiRegion::Global.credential_target(), "codexbar-zai");
+        assert_eq!(
+            ZaiRegion::ChinaMainland.credential_target(),
+            "codexbar-zai-china"
+        );
     }
 }

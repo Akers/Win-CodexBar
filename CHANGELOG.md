@@ -94,6 +94,16 @@
 - Keep percent-only Copilot quota snapshots and fully consumed positive-entitlement quotas working while dropping only explicit zero-entitlement placeholders.
 - Prioritize OpenAI Web login and Cloudflare blocking states over public-route detection so blocked dashboard responses do not get misclassified.
 
+### Added
+- Per-day Claude cost history in provider detail charts — scans local Claude JSONL session logs and aggregates token costs by date (`parse_claude_file_daily`), matching the existing Codex per-day cost chart.
+
+### Changed
+- Complete Chinese (Simplified) i18n locale review — all 33 REVIEW-i18n markers finalized with reviewed translations across `rust/src/locale/chinese.rs` and `apps/desktop-tauri/src/i18n/keys.ts`.
+- Merge upstream main into dev — aligns README screenshots and incorporates upstream documentation updates.
+
+### Fixed
+- Resolve syntax and type errors from manual merge conflict resolution: duplicate closing delimiters in `cookies.rs` and `String` vs `&str` type mismatches in `minimax/mod.rs`.
+
 ---
 
 ## [Windows] 0.32.4 - 2026-06-02

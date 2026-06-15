@@ -1,0 +1,1 @@
+rust/assets/icons/ProviderIcon-doubao.svg
