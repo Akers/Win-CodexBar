@@ -5,14 +5,14 @@
 
 #![allow(dead_code)]
 
-use std::path::Path;
+use std::path::{Path, PathBuf};
 
 use aes_gcm::{
     Aes256Gcm, Nonce,
     aead::{Aead, KeyInit},
 };
 use base64::Engine;
-use rusqlite::Connection;
+use rusqlite::{Connection, params};
 use thiserror::Error;
 
 use super::detection::{BrowserProfile, DetectedBrowser};
@@ -76,6 +76,182 @@ impl Cookie {
 pub struct CookieExtractor;
 
 impl CookieExtractor {
+    fn chromium_cookie_db_candidates(profile: &BrowserProfile) -> Vec<PathBuf> {
+        vec![profile.cookies_db_path(), profile.path.join("Cookies")]
+    }
+
+    fn existing_chromium_cookie_db(profile: &BrowserProfile) -> Option<PathBuf> {
+        Self::chromium_cookie_db_candidates(profile)
+            .into_iter()
+            .find(|path| path.exists())
+    }
+
+    fn parent_cookie_domain(domain: &str) -> Option<&str> {
+        let (_, parent) = domain.split_once('.')?;
+        parent.contains('.').then_some(parent)
+    }
+
+    fn domain_query_values(domain: &str) -> (String, String, String, String) {
+        let parent = Self::parent_cookie_domain(domain).unwrap_or(domain);
+        (
+            format!("%{}", domain),
+            format!(".{}", domain),
+            parent.to_string(),
+            format!(".{}", parent),
+        )
+    }
+
+    /// Build a safe diagnostic summary for a failed cookie import.
+    ///
+    /// The summary intentionally reports only profile names, database paths, and
+    /// distinct host_key/host values with counts. It never includes cookie names or
+    /// values, so it can be shown in UI errors without leaking secrets.
+    pub fn diagnostic_summary_for_domain(browser: &DetectedBrowser, domain: &str) -> String {
+        let parent = Self::parent_cookie_domain(domain).unwrap_or(domain);
+        let mut parts = vec![format!(
+            "diagnostics: browser={}, profiles={}, requested_domain={}, parent_suffix={}",
+            browser.browser_type.display_name(),
+            browser.profiles.len(),
+            domain,
+            parent
+        )];
+
+        for profile in &browser.profiles {
+            if browser.browser_type.is_chromium_based() {
+                parts.push(Self::chromium_profile_diagnostic(profile, domain, parent));
+            } else {
+                parts.push(Self::firefox_profile_diagnostic(profile, domain, parent));
+            }
+        }
+
+        parts.join("; ")
+    }
+
+    fn chromium_profile_diagnostic(profile: &BrowserProfile, domain: &str, parent: &str) -> String {
+        let candidates = Self::chromium_cookie_db_candidates(profile);
+        let checked = candidates
+            .iter()
+            .map(|path| {
+                format!(
+                    "{}:{}",
+                    path.display(),
+                    if path.exists() { "exists" } else { "missing" }
+                )
+            })
+            .collect::<Vec<_>>()
+            .join(", ");
+
+        let Some(db_path) = candidates.into_iter().find(|path| path.exists()) else {
+            return format!("profile={} dbs=[{}]", profile.name, checked);
+        };
+
+        let host_summary = Self::chromium_host_key_summary(&db_path, domain, parent)
+            .unwrap_or_else(|e| format!("host_key_scan_error={e}"));
+
+        format!(
+            "profile={} dbs=[{}] active_db={} {}",
+            profile.name,
+            checked,
+            db_path.display(),
+            host_summary
+        )
+    }
+
+    fn firefox_profile_diagnostic(profile: &BrowserProfile, domain: &str, parent: &str) -> String {
+        let db_path = profile.path.join("cookies.sqlite");
+        if !db_path.exists() {
+            return format!("profile={} db={} missing", profile.name, db_path.display());
+        }
+
+        let host_summary = Self::firefox_host_summary(&db_path, domain, parent)
+            .unwrap_or_else(|e| format!("host_scan_error={e}"));
+
+        format!(
+            "profile={} db={} exists {}",
+            profile.name,
+            db_path.display(),
+            host_summary
+        )
+    }
+
+    fn chromium_host_key_summary(
+        db_path: &Path,
+        domain: &str,
+        parent: &str,
+    ) -> Result<String, CookieError> {
+        let temp_db = Self::copy_to_temp(db_path)?;
+        let result = (|| {
+            let conn = Connection::open(&temp_db)?;
+            let (domain_pattern, dot_domain, parent_domain, dot_parent_domain) =
+                Self::domain_query_values(domain);
+            let candidate_count: i64 = conn.query_row(
+                "SELECT COUNT(*) FROM cookies
+                 WHERE host_key LIKE ?1 OR host_key = ?2 OR host_key = ?3 OR host_key = ?4",
+                params![domain_pattern, dot_domain, parent_domain, dot_parent_domain],
+                |row| row.get(0),
+            )?;
+            let host_suffix = format!("%{}", parent);
+            let hosts = Self::query_distinct_hosts(&conn, "cookies", "host_key", &host_suffix)?;
+            Ok(format!(
+                "candidate_rows={} host_keys_like_parent=[{}]",
+                candidate_count, hosts
+            ))
+        })();
+        let _ = std::fs::remove_file(&temp_db);
+        result
+    }
+
+    fn firefox_host_summary(
+        db_path: &Path,
+        domain: &str,
+        parent: &str,
+    ) -> Result<String, CookieError> {
+        let conn = Connection::open(db_path)?;
+        let (domain_pattern, dot_domain, parent_domain, dot_parent_domain) =
+            Self::domain_query_values(domain);
+        let candidate_count: i64 = conn.query_row(
+            "SELECT COUNT(*) FROM moz_cookies
+             WHERE host LIKE ?1 OR host = ?2 OR host = ?3 OR host = ?4",
+            params![domain_pattern, dot_domain, parent_domain, dot_parent_domain],
+            |row| row.get(0),
+        )?;
+        let host_suffix = format!("%{}", parent);
+        let hosts = Self::query_distinct_hosts(&conn, "moz_cookies", "host", &host_suffix)?;
+        Ok(format!(
+            "candidate_rows={} hosts_like_parent=[{}]",
+            candidate_count, hosts
+        ))
+    }
+
+    fn query_distinct_hosts(
+        conn: &Connection,
+        table: &str,
+        column: &str,
+        suffix_pattern: &str,
+    ) -> Result<String, CookieError> {
+        let sql = format!(
+            "SELECT {column}, COUNT(*) FROM {table}
+             WHERE {column} LIKE ?1
+             GROUP BY {column}
+             ORDER BY {column}
+             LIMIT 20"
+        );
+        let mut stmt = conn.prepare(&sql)?;
+        let rows = stmt.query_map([suffix_pattern], |row| {
+            Ok((row.get::<_, String>(0)?, row.get::<_, i64>(1)?))
+        })?;
+        let hosts = rows
+            .filter_map(Result::ok)
+            .map(|(host, count)| format!("{host}({count})"))
+            .collect::<Vec<_>>();
+
+        if hosts.is_empty() {
+            Ok("none".to_string())
+        } else {
+            Ok(hosts.join(", "))
+        }
+    }
+
     /// Extract cookies for a domain from a browser
     pub fn extract_for_domain(
         browser: &DetectedBrowser,
@@ -162,20 +338,26 @@ impl CookieExtractor {
         profile: &BrowserProfile,
         domain: &str,
     ) -> Result<Vec<Cookie>, CookieError> {
-        let cookies_db = profile.cookies_db_path();
+        let cookies_db = Self::existing_chromium_cookie_db(profile);
         tracing::debug!(
             "Reading Chromium cookies for {} profile {}",
             browser.browser_type.display_name(),
             profile.name
         );
 
-        if !cookies_db.exists() {
+        let Some(cookies_db) = cookies_db else {
+            let checked = Self::chromium_cookie_db_candidates(profile)
+                .into_iter()
+                .map(|path| path.display().to_string())
+                .collect::<Vec<_>>()
+                .join(", ");
             return Err(CookieError::NotFound(format!(
-                "Cookies database not found for {} profile {}",
+                "Cookies database not found for {} profile {} (checked: {})",
                 browser.browser_type.display_name(),
-                profile.name
+                profile.name,
+                checked
             )));
-        }
+        };
 
         // Get the encryption key from Local State
         let local_state_path = profile.local_state_path(&browser.user_data_dir);
@@ -192,8 +374,8 @@ impl CookieExtractor {
             e
         })?;
 
-        let domain_pattern = format!("%{}", domain);
-        let dot_domain_pattern = format!(".{}", domain);
+        let (domain_pattern, dot_domain_pattern, parent_domain, dot_parent_domain) =
+            Self::domain_query_values(domain);
         tracing::debug!("Searching for cookies for domain {}", domain);
 
         let mut cookies = Vec::new();
@@ -206,20 +388,28 @@ impl CookieExtractor {
             let mut stmt = conn.prepare(
                 "SELECT name, encrypted_value, host_key, path, expires_utc, is_secure, is_httponly
                  FROM cookies
-                 WHERE host_key LIKE ?1 OR host_key LIKE ?2",
+                 WHERE host_key LIKE ?1 OR host_key = ?2 OR host_key = ?3 OR host_key = ?4",
             )?;
 
-            let rows = stmt.query_map([&domain_pattern, &dot_domain_pattern], |row| {
-                Ok((
-                    row.get::<_, String>(0)?,   // name
-                    row.get::<_, Vec<u8>>(1)?,  // encrypted_value
-                    row.get::<_, String>(2)?,   // host_key
-                    row.get::<_, String>(3)?,   // path
-                    row.get::<_, i64>(4)?,      // expires_utc
-                    row.get::<_, i32>(5)? != 0, // is_secure
-                    row.get::<_, i32>(6)? != 0, // is_httponly
-                ))
-            })?;
+            let rows = stmt.query_map(
+                [
+                    &domain_pattern,
+                    &dot_domain_pattern,
+                    &parent_domain,
+                    &dot_parent_domain,
+                ],
+                |row| {
+                    Ok((
+                        row.get::<_, String>(0)?,   // name
+                        row.get::<_, Vec<u8>>(1)?,  // encrypted_value
+                        row.get::<_, String>(2)?,   // host_key
+                        row.get::<_, String>(3)?,   // path
+                        row.get::<_, i64>(4)?,      // expires_utc
+                        row.get::<_, i32>(5)? != 0, // is_secure
+                        row.get::<_, i32>(6)? != 0, // is_httponly
+                    ))
+                },
+            )?;
 
             for row in rows {
                 let (name, encrypted_value, host_key, path, expires_utc, is_secure, is_http_only) =
@@ -489,8 +679,8 @@ impl CookieExtractor {
         // Copy to temp (browser may have it locked)
         let temp_db = Self::copy_to_temp(&cookies_db)?;
 
-        let domain_pattern = format!("%{}", domain);
-        let dot_domain_pattern = format!(".{}", domain);
+        let (domain_pattern, dot_domain_pattern, parent_domain, dot_parent_domain) =
+            Self::domain_query_values(domain);
 
         let mut cookies = Vec::new();
         {
@@ -500,20 +690,28 @@ impl CookieExtractor {
             let mut stmt = conn.prepare(
                 "SELECT name, value, host, path, expiry, isSecure, isHttpOnly
                  FROM moz_cookies
-                 WHERE host LIKE ?1 OR host LIKE ?2",
+                 WHERE host LIKE ?1 OR host = ?2 OR host = ?3 OR host = ?4",
             )?;
 
-            let rows = stmt.query_map([&domain_pattern, &dot_domain_pattern], |row| {
-                Ok(Cookie {
-                    name: row.get(0)?,
-                    value: row.get(1)?,
-                    domain: row.get(2)?,
-                    path: row.get(3)?,
-                    expires: row.get(4).ok(),
-                    is_secure: row.get::<_, i32>(5)? != 0,
-                    is_http_only: row.get::<_, i32>(6)? != 0,
-                })
-            })?;
+            let rows = stmt.query_map(
+                [
+                    &domain_pattern,
+                    &dot_domain_pattern,
+                    &parent_domain,
+                    &dot_parent_domain,
+                ],
+                |row| {
+                    Ok(Cookie {
+                        name: row.get(0)?,
+                        value: row.get(1)?,
+                        domain: row.get(2)?,
+                        path: row.get(3)?,
+                        expires: row.get(4).ok(),
+                        is_secure: row.get::<_, i32>(5)? != 0,
+                        is_http_only: row.get::<_, i32>(6)? != 0,
+                    })
+                },
+            )?;
 
             for row in rows {
                 cookies.push(row?);
@@ -773,5 +971,27 @@ mod tests {
         let detected = CookieExtractor::detect_app_bound_encryption(&path);
         let _ = std::fs::remove_file(&path);
         assert!(detected, "ABE should be detected when field is present");
+    }
+
+    #[test]
+    fn test_domain_query_values_include_parent_cookie_domain() {
+        let (domain_pattern, dot_domain, parent, dot_parent) =
+            CookieExtractor::domain_query_values("platform.minimaxi.com");
+
+        assert_eq!(domain_pattern, "%platform.minimaxi.com");
+        assert_eq!(dot_domain, ".platform.minimaxi.com");
+        assert_eq!(parent, "minimaxi.com");
+        assert_eq!(dot_parent, ".minimaxi.com");
+    }
+
+    #[test]
+    fn test_domain_query_values_do_not_collapse_apex_domain() {
+        let (domain_pattern, dot_domain, parent, dot_parent) =
+            CookieExtractor::domain_query_values("claude.ai");
+
+        assert_eq!(domain_pattern, "%claude.ai");
+        assert_eq!(dot_domain, ".claude.ai");
+        assert_eq!(parent, "claude.ai");
+        assert_eq!(dot_parent, ".claude.ai");
     }
 }

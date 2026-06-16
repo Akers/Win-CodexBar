@@ -41,6 +41,7 @@ pub fn list_detected_browsers() -> Vec<DetectedBrowserBridge> {
 pub fn import_browser_cookies(
     provider_id: String,
     browser_type: String,
+    region: Option<String>,
 ) -> Result<Vec<CookieInfoBridge>, String> {
     use codexbar::browser::cookies::{CookieError, CookieExtractor};
     use codexbar::browser::detection::BrowserDetector;
@@ -48,11 +49,10 @@ pub fn import_browser_cookies(
     // Resolve the provider to get its cookie domain.
     let pid = parse_provider_arg(&provider_id)?;
 
-    let settings = Settings::load();
+    // Determine cookie domain, allowing region override for multi-region providers.
     let domain = if pid == codexbar::core::ProviderId::MiniMax {
-        codexbar::providers::MiniMaxProvider::cookie_domain_for_region(Some(
-            settings.api_region(pid),
-        ))
+        let region_val = region.as_deref().unwrap_or("global");
+        codexbar::providers::minimax::MiniMaxRegion::from(region_val).cookie_domain()
     } else {
         pid.cookie_domain()
             .ok_or_else(|| format!("Provider '{provider_id}' does not use cookie authentication"))?
@@ -68,12 +68,16 @@ pub fn import_browser_cookies(
     // Extract the cookie header.
     let cookies = CookieExtractor::extract_for_domain(&browser, domain).map_err(|e| match e {
         CookieError::Dpapi(msg) => format!("DPAPI error: {msg}"),
+        CookieError::AppBoundEncryption => {
+            app_bound_encryption_message(browser.browser_type.display_name(), domain)
+        }
         other => other.to_string(),
     })?;
 
     if cookies.is_empty() {
+        let diagnostics = CookieExtractor::diagnostic_summary_for_domain(&browser, domain);
         return Err(format!(
-            "No cookies found for {domain} in {}. Make sure you are signed in to that site in the browser.",
+            "No cookies found for {domain} in {}. Make sure you are signed in to that site in the browser. {diagnostics}",
             browser.browser_type.display_name()
         ));
     }
@@ -98,5 +102,27 @@ fn browser_type_key(bt: codexbar::browser::detection::BrowserType) -> &'static s
         BrowserType::Arc => "arc",
         BrowserType::Firefox => "firefox",
         BrowserType::Chromium => "chromium",
+    }
+}
+
+fn app_bound_encryption_message(browser_name: &str, domain: &str) -> String {
+    format!(
+        "{browser_name} found cookies for {domain}, but Chromium App-Bound Encryption blocked automatic decryption. \
+         This affects recent Chrome/Edge/Brave versions. Paste the Cookie request header manually in Settings → Cookies, \
+         or import from Firefox if you are signed in there."
+    )
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn app_bound_encryption_message_is_browser_specific() {
+        let message = app_bound_encryption_message("Microsoft Edge", "platform.minimaxi.com");
+
+        assert!(message.contains("Microsoft Edge found cookies for platform.minimaxi.com"));
+        assert!(message.contains("Paste the Cookie request header manually"));
+        assert!(!message.contains("Try Microsoft Edge"));
     }
 }

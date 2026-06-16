@@ -241,7 +241,7 @@ impl ProviderId {
             ProviderId::Kiro => Some("kiro.dev"),
             ProviderId::Kimi => Some("kimi.moonshot.cn"),
             ProviderId::KimiK2 => Some("platform.moonshot.cn"),
-            ProviderId::MiniMax => Some("platform.minimax.io"),
+            ProviderId::MiniMax => Some("platform.minimaxi.com"),
             ProviderId::OpenCode => Some("opencode.ai"),
             ProviderId::Augment => Some("app.augmentcode.com"),
             ProviderId::Amp => Some("sourcegraph.com"),
@@ -454,7 +454,7 @@ pub struct FetchContext {
     /// Optional provider workspace/project scope from persisted settings.
     pub workspace_id: Option<String>,
 
-    /// Optional provider API/web region from persisted settings.
+    /// API region for providers with multiple endpoints (e.g., "global", "china")
     pub api_region: Option<String>,
 }
 
@@ -678,6 +678,7 @@ mod tests {
         assert!(!ctx.verbose);
         assert!(ctx.manual_cookie_header.is_none());
         assert!(ctx.api_key.is_none());
+        assert!(ctx.api_region.is_none());
     }
 
     #[test]

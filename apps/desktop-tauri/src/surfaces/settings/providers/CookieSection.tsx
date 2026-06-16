@@ -15,6 +15,7 @@ import type {
 interface Props {
   providerId: string;
   cookieDomain: string | null;
+  region?: string | null;
 }
 
 function cookiePlaceholder(providerId: string): string {
@@ -31,7 +32,7 @@ function cookiePlaceholder(providerId: string): string {
  * Per-provider browser cookie management. Renders nothing for providers
  * that do not have a cookieDomain (i.e. don't authenticate via web cookies).
  */
-export function CookieSection({ providerId, cookieDomain }: Props) {
+export function CookieSection({ providerId, cookieDomain, region }: Props) {
   const [saved, setSaved] = useState<CookieInfoBridge | null>(null);
   const [loaded, setLoaded] = useState(false);
   const [busy, setBusy] = useState(false);
@@ -106,7 +107,7 @@ export function CookieSection({ providerId, cookieDomain }: Props) {
     setImportError(null);
     setImportStatus(null);
     try {
-      const next = await importBrowserCookies(providerId, browserType);
+      const next = await importBrowserCookies(providerId, browserType, region ?? undefined);
       setSaved(next.find((c) => c.providerId === providerId) ?? null);
       setImportStatus("Cookies imported successfully.");
     } catch (err: unknown) {

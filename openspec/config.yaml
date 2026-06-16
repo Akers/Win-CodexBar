@@ -1,0 +1,31 @@
+schema: spec-driven
+
+context: |
+  Tech stack: Rust 2024 edition, Tauri 2.x, React 18 + TypeScript 5, Vite 6
+  Frontend: React functional components, hooks-based state management, no external state library
+  Backend: Rust shared crate (codexbar) + Tauri desktop shell
+  Build: Cargo workspace (rust/ + apps/desktop-tauri/src-tauri/), pnpm for frontend
+  Platform: Windows primary, Linux/WSL secondary, macOS upstream-only
+  Language: English UI with Chinese (i18n) support
+  Testing: cargo test, vitest for frontend
+  CI: GitHub Actions (Ubuntu + Windows runners)
+  Conventions: Conventional commits, imperative commit messages
+  Domain: AI coding tool usage monitoring — tracks rate limits, costs, and quotas across 49+ providers
+  Security: DPAPI for Windows credential storage, cookie extraction via browser SQLite, sensitive info redaction
+  Key patterns: Provider trait system, async fetch pipeline, system tray icon rendering, Tauri command bridge
+
+rules:
+  proposal:
+    - Keep proposals under 800 words
+    - Always include a "Non-goals" section
+    - Reference specific file paths for impact analysis
+  design:
+    - Document trade-offs for any architectural decision
+    - Specify affected ProviderId variants when changing provider logic
+  specs:
+    - Use WHEN/THEN/AND scenario format for testable requirements
+    - Group requirements by capability/module
+  tasks:
+    - Break tasks into chunks of max 2 hours
+    - Each task must reference a specific spec requirement
+    - Mark provider-specific tasks with the ProviderId

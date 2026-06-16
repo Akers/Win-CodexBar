@@ -132,7 +132,21 @@ impl MiniMaxRegion {
     }
 
     fn billing_history_url(self) -> String {
-        format!("{}/account/amount", self.base_url())
+        match self {
+            // The China web console hosts dashboard pages under platform.minimaxi.com,
+            // but its billing-history JSON endpoint is served from www.minimaxi.com.
+            Self::ChinaMainland => "https://www.minimaxi.com/account/amount".to_string(),
+            Self::Global => format!("{}/account/amount", self.base_url()),
+        }
+    }
+}
+
+impl From<&str> for MiniMaxRegion {
+    fn from(s: &str) -> Self {
+        match s {
+            "china" => MiniMaxRegion::ChinaMainland,
+            _ => MiniMaxRegion::Global,
+        }
     }
 }
 
@@ -226,7 +240,141 @@ impl MiniMaxProvider {
         Err(ProviderError::AuthRequired)
     }
 
-    /// Fetch usage via MiniMax API with region fallback
+    /// API base URLs for different regions
+    fn api_base_url(region: MiniMaxRegion) -> &'static str {
+        match region {
+            MiniMaxRegion::Global => "https://api.minimax.io",
+            MiniMaxRegion::ChinaMainland => "https://api.minimaxi.com",
+        }
+    }
+
+    /// Fetch usage via `/v1/token_plan/remains` using Bearer API key.
+    /// This endpoint does NOT require group_id — just the API key.
+    async fn fetch_token_plan_remains(
+        &self,
+        api_key: &str,
+        region: MiniMaxRegion,
+    ) -> Result<ProviderFetchResult, ProviderError> {
+        let client = reqwest::Client::builder()
+            .timeout(std::time::Duration::from_secs(30))
+            .build()
+            .map_err(|e| ProviderError::Other(e.to_string()))?;
+
+        let base_url = Self::api_base_url(region);
+        let resp = client
+            .get(format!("{}/v1/token_plan/remains", base_url))
+            .header("Authorization", format!("Bearer {}", api_key))
+            .header("Content-Type", "application/json")
+            .send()
+            .await?;
+
+        if resp.status() == reqwest::StatusCode::UNAUTHORIZED
+            || resp.status() == reqwest::StatusCode::FORBIDDEN
+        {
+            return Err(ProviderError::AuthRequired);
+        }
+
+        let status = resp.status();
+        if !status.is_success() {
+            let body = resp.text().await.unwrap_or_default();
+            return Err(ProviderError::Other(format!(
+                "MiniMax token_plan returned status {}: {}",
+                status,
+                body.chars().take(200).collect::<String>()
+            )));
+        }
+
+        let json: serde_json::Value = resp
+            .json()
+            .await
+            .map_err(|e| ProviderError::Parse(e.to_string()))?;
+
+        let usage = Self::parse_token_plan_response(&json)?;
+        Ok(ProviderFetchResult::new(usage, "api"))
+    }
+
+    /// Parse the `/v1/token_plan/remains` JSON response.
+    /// Response is wrapped in `{"data": {...}}` or flat `{...}`.
+    ///
+    /// Key traps from upstream research:
+    /// - `current_interval_usage_count` is REMAINING, not used
+    /// - `usage_percent` is remaining percent, not used percent
+    fn parse_token_plan_response(json: &serde_json::Value) -> Result<UsageSnapshot, ProviderError> {
+        let data = json.get("data").cloned().unwrap_or_else(|| json.clone());
+
+        // Check base_resp
+        if let Some(base) = data.get("base_resp") {
+            let status_code = base
+                .get("status_code")
+                .and_then(|v| v.as_i64())
+                .unwrap_or(-1);
+            if status_code != 0 {
+                return Err(ProviderError::Parse(
+                    base.get("status_msg")
+                        .and_then(|v| v.as_str())
+                        .unwrap_or("Unknown error")
+                        .to_string(),
+                ));
+            }
+        }
+
+        // Try to get total and remaining from flexible aliases
+        let total = first_f64(
+            &data,
+            &[
+                "total",
+                "total_amount",
+                "total_quota",
+                "current_interval_total_count",
+            ],
+        )
+        .unwrap_or(0.0);
+
+        let remaining = first_f64(
+            &data,
+            &[
+                "remaining",
+                "remain",
+                "remain_amount",
+                "remainingAmount",
+                "remaining_amount",
+                "left_count",
+                "left",
+                "current_interval_usage_count",
+            ],
+        )
+        .unwrap_or(0.0);
+
+        let used = first_f64(&data, &["used", "used_amount", "used_tokens"]);
+
+        let used_percent = if let Some(used_val) = used {
+            if total > 0.0 {
+                (used_val / total) * 100.0
+            } else {
+                0.0
+            }
+        } else if total > 0.0 {
+            // Derive from remaining
+            let computed_used = (total - remaining).max(0.0);
+            (computed_used / total) * 100.0
+        } else {
+            0.0
+        };
+
+        let plan = data
+            .get("plan_name")
+            .or_else(|| data.get("current_subscribe_title"))
+            .or_else(|| data.get("plan"))
+            .and_then(|v| v.as_str())
+            .unwrap_or("MiniMax");
+
+        let usage =
+            UsageSnapshot::new(RateWindow::new(used_percent.min(100.0))).with_login_method(plan);
+
+        Ok(usage)
+    }
+
+    /// Fetch usage via MiniMax API with region fallback (legacy billing endpoint)
     async fn fetch_via_web(
         &self,
         region: MiniMaxRegion,
@@ -353,25 +501,36 @@ impl MiniMaxProvider {
             .build()
             .map_err(|e| ProviderError::Other(e.to_string()))?;
 
-        let response = client
+        let mut request = client
             .get(region.billing_history_url())
             .query(&[("page", "1"), ("limit", "100"), ("aggregate", "false")])
             .header("Cookie", cookie_header)
             .header("Accept", "application/json, text/plain, */*")
             .header("X-Requested-With", "XMLHttpRequest")
-            .send()
-            .await?;
+            .header("Origin", origin_from_url(&region.billing_history_url()))
+            .header(
+                "Referer",
+                format!("{}/account", origin_from_url(&region.billing_history_url())),
+            )
+            .header(
+                "User-Agent",
+                "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 \
+                 (KHTML, like Gecko) Chrome/143.0.0.0 Safari/537.36",
+            );
 
-        if response.status() == reqwest::StatusCode::UNAUTHORIZED
-            || response.status() == reqwest::StatusCode::FORBIDDEN
-        {
+        if let Some(group_id) = Self::local_storage_group_id() {
+            request = request.header("X-Group-Id", group_id);
+        }
+
+        let response = request.send().await?;
+
+        let status = response.status();
+        if status == reqwest::StatusCode::UNAUTHORIZED || status == reqwest::StatusCode::FORBIDDEN {
             return Err(ProviderError::AuthRequired);
         }
-        if !response.status().is_success() {
-            return Err(ProviderError::Other(format!(
-                "MiniMax billing returned status {}",
-                response.status()
-            )));
+        if !status.is_success() {
+            let body = response.text().await.unwrap_or_default();
+            return Err(ProviderError::Other(billing_status_error(status, &body)));
         }
 
         let json: serde_json::Value = response
@@ -380,6 +539,14 @@ impl MiniMaxProvider {
             .map_err(|e| ProviderError::Parse(format!("Failed to parse MiniMax billing: {e}")))?;
         let summary = parse_billing_summary(&json)?;
         Ok(result_from_billing_summary(summary, "web-billing"))
+    }
+
+    fn local_storage_group_id() -> Option<String> {
+        MiniMaxLocalStorageImporter::import_session()
+            .ok()
+            .and_then(|session| session.group_id)
+            .map(|group_id| group_id.trim().to_string())
+            .filter(|group_id| !group_id.is_empty())
     }
 
     fn result_with_optional_billing(
@@ -432,6 +599,47 @@ fn parse_billing_summary(json: &serde_json::Value) -> Result<MiniMaxBillingSumma
         ));
     }
     Ok(aggregate_billing(&payload.charge_records, Utc::now()))
+}
+
+fn origin_from_url(url: &str) -> String {
+    reqwest::Url::parse(url)
+        .ok()
+        .and_then(|parsed| {
+            let scheme = parsed.scheme();
+            let host = parsed.host_str()?;
+            Some(format!("{scheme}://{host}"))
+        })
+        .unwrap_or_else(|| url.to_string())
+}
+
+fn billing_status_error(status: reqwest::StatusCode, body: &str) -> String {
+    let detail = minimax_base_response_message(body)
+        .or_else(|| response_body_snippet(body))
+        .map(|detail| format!(": {detail}"))
+        .unwrap_or_default();
+    format!("MiniMax billing returned status {status}{detail}")
+}
+
+fn minimax_base_response_message(body: &str) -> Option<String> {
+    let json: serde_json::Value = serde_json::from_str(body).ok()?;
+    json.pointer("/base_resp/status_msg")
+        .and_then(|value| value.as_str())
+        .map(str::trim)
+        .filter(|message| !message.is_empty())
+        .map(|message| message.to_string())
+}
+
+fn response_body_snippet(body: &str) -> Option<String> {
+    let collapsed = body.split_whitespace().collect::<Vec<_>>().join(" ");
+    if collapsed.is_empty() {
+        return None;
+    }
+    const LIMIT: usize = 300;
+    let mut snippet: String = collapsed.chars().take(LIMIT).collect();
+    if collapsed.chars().count() > LIMIT {
+        snippet.push('…');
+    }
+    Some(snippet)
 }
 
 fn aggregate_billing(
@@ -658,6 +866,23 @@ fn record_date(record: &MiniMaxBillingRecord) -> Option<DateTime<Utc>> {
     None
 }
 
+/// Try multiple JSON key names and return the first f64 value found.
+fn first_f64(json: &serde_json::Value, keys: &[&str]) -> Option<f64> {
+    for key in keys {
+        if let Some(v) = json.get(*key) {
+            if let Some(n) = v.as_f64() {
+                return Some(n);
+            }
+            if let Some(s) = v.as_str()
+                && let Ok(n) = s.trim().replace(',', "").parse::<f64>()
+            {
+                return Some(n);
+            }
+        }
+    }
+    None
+}
+
 fn value_i64(value: Option<&serde_json::Value>) -> Option<i64> {
     match value? {
         serde_json::Value::Number(number) => number.as_i64(),
@@ -717,18 +942,40 @@ impl Provider for MiniMaxProvider {
 
         match ctx.source_mode {
             SourceMode::Auto => {
-                if let Some(cookie_header) = ctx.manual_cookie_header.as_deref()
-                    && let Ok(result) = self.fetch_billing_with_cookie(cookie_header, region).await
-                {
-                    return Ok(result);
+                // 1. Try API key via ctx.api_key (saved in Settings UI) → token_plan/remains
+                if let Some(api_key) = ctx.api_key.as_deref() {
+                    tracing::debug!("Trying token_plan/remains with ctx.api_key");
+                    match self.fetch_token_plan_remains(api_key, region).await {
+                        Ok(result) => return Ok(result),
+                        Err(e) => tracing::debug!("token_plan/remains failed: {}", e),
+                    }
                 }
+
+                // 2. Try cookie authentication if cookie is present
+                if let Some(cookie_header) = ctx.manual_cookie_header.as_deref() {
+                    match self.fetch_billing_with_cookie(cookie_header, region).await {
+                        Ok(result) => return Ok(result),
+                        Err(e) => {
+                            tracing::debug!("Cookie authentication failed: {}", e);
+                            return Err(e);
+                        }
+                    }
+                }
+
+                // 3. Try legacy API key (env vars / config file) → billing/usage
                 if let Ok(result) = self.fetch_via_web(region).await {
                     return Ok(result);
                 }
+
+                // 4. Fallback to probe
                 let usage = self.probe_cli().await?;
                 Ok(ProviderFetchResult::new(usage, "cli"))
             }
             SourceMode::Web => {
+                // Web mode: try API key first, then cookie
+                if let Some(api_key) = ctx.api_key.as_deref() {
+                    return self.fetch_token_plan_remains(api_key, region).await;
+                }
                 if let Some(cookie_header) = ctx.manual_cookie_header.as_deref() {
                     return self.fetch_billing_with_cookie(cookie_header, region).await;
                 }
@@ -953,5 +1200,146 @@ mod tests {
         assert_eq!(summary.top_methods[0].tokens, 3000);
         assert_eq!(summary.top_methods[1].name, "chat");
         assert_eq!(summary.top_methods[1].tokens, 1000);
+    }
+
+    #[test]
+    fn minimax_region_cookie_domain_global() {
+        assert_eq!(MiniMaxRegion::Global.cookie_domain(), "platform.minimax.io");
+    }
+
+    #[test]
+    fn minimax_region_cookie_domain_china() {
+        assert_eq!(
+            MiniMaxRegion::ChinaMainland.cookie_domain(),
+            "platform.minimaxi.com"
+        );
+    }
+
+    #[test]
+    fn minimax_region_from_str() {
+        assert_eq!(MiniMaxRegion::from("china"), MiniMaxRegion::ChinaMainland);
+        assert_eq!(MiniMaxRegion::from("global"), MiniMaxRegion::Global);
+        assert_eq!(MiniMaxRegion::from("unknown"), MiniMaxRegion::Global);
+        assert_eq!(MiniMaxRegion::from(""), MiniMaxRegion::Global);
+    }
+
+    #[test]
+    fn billing_status_error_prefers_base_response_message() {
+        let message = billing_status_error(
+            reqwest::StatusCode::INTERNAL_SERVER_ERROR,
+            r#"{"base_resp":{"status_code":1001,"status_msg":"missing group"}}"#,
+        );
+
+        assert_eq!(
+            message,
+            "MiniMax billing returned status 500 Internal Server Error: missing group"
+        );
+    }
+
+    #[test]
+    fn billing_status_error_includes_truncated_body_snippet() {
+        let body = format!("<html>{}</html>", "x".repeat(400));
+        let message = billing_status_error(reqwest::StatusCode::BAD_GATEWAY, &body);
+
+        assert!(message.starts_with("MiniMax billing returned status 502 Bad Gateway: <html>"));
+        assert!(message.ends_with('…'));
+        assert!(message.len() < 380);
+    }
+
+    #[test]
+    fn token_plan_parses_used_and_total() {
+        let json = serde_json::json!({
+            "data": {
+                "base_resp": { "status_code": 0 },
+                "used": 45,
+                "total": 100,
+                "plan_name": "Max"
+            }
+        });
+        let usage = MiniMaxProvider::parse_token_plan_response(&json).unwrap();
+        assert!((usage.primary.used_percent - 45.0).abs() < 0.01);
+        assert_eq!(usage.login_method.as_deref(), Some("Max"));
+    }
+
+    #[test]
+    fn token_plan_derives_used_from_remaining() {
+        let json = serde_json::json!({
+            "data": {
+                "base_resp": { "status_code": 0 },
+                "remaining": 30,
+                "total": 100
+            }
+        });
+        let usage = MiniMaxProvider::parse_token_plan_response(&json).unwrap();
+        assert!((usage.primary.used_percent - 70.0).abs() < 0.01);
+    }
+
+    #[test]
+    fn token_plan_handles_remaining_aliases() {
+        // "left_count" is a remaining alias
+        let json = serde_json::json!({
+            "base_resp": { "status_code": 0 },
+            "total_amount": 200,
+            "left_count": 50
+        });
+        let usage = MiniMaxProvider::parse_token_plan_response(&json).unwrap();
+        assert!((usage.primary.used_percent - 75.0).abs() < 0.01);
+    }
+
+    #[test]
+    fn token_plan_handles_current_interval_usage_as_remaining() {
+        // "current_interval_usage_count" is REMAINING, not used!
+        let json = serde_json::json!({
+            "base_resp": { "status_code": 0 },
+            "current_interval_total_count": 100,
+            "current_interval_usage_count": 80
+        });
+        let usage = MiniMaxProvider::parse_token_plan_response(&json).unwrap();
+        // used = 100 - 80 = 20, percent = 20%
+        assert!((usage.primary.used_percent - 20.0).abs() < 0.01);
+    }
+
+    #[test]
+    fn token_plan_caps_at_100_percent() {
+        let json = serde_json::json!({
+            "base_resp": { "status_code": 0 },
+            "used": 150,
+            "total": 100
+        });
+        let usage = MiniMaxProvider::parse_token_plan_response(&json).unwrap();
+        assert!((usage.primary.used_percent - 100.0).abs() < 0.01);
+    }
+
+    #[test]
+    fn token_plan_falls_back_to_flat_json() {
+        // No "data" wrapper
+        let json = serde_json::json!({
+            "base_resp": { "status_code": 0 },
+            "used_tokens": 10,
+            "total_quota": 50
+        });
+        let usage = MiniMaxProvider::parse_token_plan_response(&json).unwrap();
+        assert!((usage.primary.used_percent - 20.0).abs() < 0.01);
+    }
+
+    #[test]
+    fn first_f64_returns_first_matching_key() {
+        let json = serde_json::json!({"remaining": 55, "remain": 40, "left_count": 30});
+        assert_eq!(
+            first_f64(&json, &["remaining", "remain", "left_count"]),
+            Some(55.0)
+        );
+    }
+
+    #[test]
+    fn first_f64_parses_string_numbers() {
+        let json = serde_json::json!({"total": "1,234"});
+        assert_eq!(first_f64(&json, &["total"]), Some(1234.0));
+    }
+
+    #[test]
+    fn first_f64_returns_none_for_missing_keys() {
+        let json = serde_json::json!({"foo": 1});
+        assert_eq!(first_f64(&json, &["bar", "baz"]), None);
     }
 }

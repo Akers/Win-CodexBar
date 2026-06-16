@@ -193,10 +193,12 @@ export function listDetectedBrowsers(): Promise<DetectedBrowserBridge[]> {
 export function importBrowserCookies(
   providerId: string,
   browserType: string,
+  region?: string,
 ): Promise<CookieInfoBridge[]> {
   return invoke<CookieInfoBridge[]>("import_browser_cookies", {
     providerId,
     browserType,
+    region: region ?? null,
   });
 }
 

@@ -61,14 +61,24 @@ pub fn get_api_keys() -> Vec<ApiKeyInfoBridge> {
 
 #[tauri::command]
 pub fn get_api_key_providers() -> Vec<ApiKeyProviderInfoBridge> {
+    let settings = Settings::load();
     codexbar::settings::get_api_key_providers()
         .into_iter()
-        .map(|p| ApiKeyProviderInfoBridge {
-            id: p.id.cli_name().to_string(),
-            display_name: p.name.to_string(),
-            env_var: p.api_key_env_var.map(|s| s.to_string()),
-            help: p.api_key_help.map(|s| s.to_string()),
-            dashboard_url: p.dashboard_url.map(|s| s.to_string()),
+        .map(|p| {
+            let dashboard_url = if p.id == ProviderId::Zai {
+                let region: codexbar::providers::zai::ZaiRegion =
+                    settings.api_region(ProviderId::Zai).into();
+                Some(region.dashboard_url().to_string())
+            } else {
+                p.dashboard_url.map(|s| s.to_string())
+            };
+            ApiKeyProviderInfoBridge {
+                id: p.id.cli_name().to_string(),
+                display_name: p.name.to_string(),
+                env_var: p.api_key_env_var.map(|s| s.to_string()),
+                help: p.api_key_help.map(|s| s.to_string()),
+                dashboard_url,
+            }
         })
         .collect()
 }

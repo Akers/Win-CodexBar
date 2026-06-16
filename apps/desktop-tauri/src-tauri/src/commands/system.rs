@@ -269,6 +269,12 @@ pub fn quit_app(app: tauri::AppHandle) {
 }
 
 fn dashboard_url_for_provider(provider_id: &str) -> Option<String> {
+    if provider_id == ProviderId::Zai.cli_name() {
+        let settings = Settings::load();
+        let region: codexbar::providers::zai::ZaiRegion =
+            settings.api_region(ProviderId::Zai).into();
+        return Some(region.dashboard_url().to_string());
+    }
     if provider_id == ProviderId::MiniMax.cli_name() {
         let settings = Settings::load();
         return Some(
