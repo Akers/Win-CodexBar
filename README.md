@@ -119,6 +119,7 @@ See the full history in [CHANGELOG.md](CHANGELOG.md).
 | Azure OpenAI | API Key | Deployment |
 | T3 Chat | Cookies / cURL | Base, Overage |
 | OpenRouter | API Key | Credits |
+| Synthetic | API Key / Config | Usage, Credits |
 | JetBrains AI | Local Config | Usage |
 | Alibaba | Cookies | Usage |
 | Alibaba Token Plan | Cookies | Token Plan Credits, Reset date |
@@ -129,6 +130,7 @@ See the full history in [CHANGELOG.md](CHANGELOG.md).
 | Mistral | Cookies | Billing, Usage |
 | OpenCode Go | Cookies | Usage, Zen Balance |
 | Kilo | API Key / CLI | Usage |
+| AWS Bedrock | AWS CLI Profile | Cost |
 | Codebuff | API Key / Local Config | Credits, Weekly |
 | DeepSeek | API Key | Balance, Usage summaries, Cost |
 | Windsurf | Local Cache | Daily, Weekly |

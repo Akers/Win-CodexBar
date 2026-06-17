@@ -140,6 +140,7 @@ Winget 分发已通过 [microsoft/winget-pkgs](https://github.com/microsoft/wing
 | Azure OpenAI | API Key | 部署 |
 | T3 Chat | Cookies / cURL | 基础、超额 |
 | OpenRouter | API Key | Credits |
+| Synthetic | API Key / 配置 | 用量、Credits |
 | JetBrains AI | 本地配置 | 用量 |
 | Alibaba | Cookies | 用量 |
 | Alibaba Token Plan | Cookies | Token 套餐 Credits、重置日期 |
@@ -150,6 +151,7 @@ Winget 分发已通过 [microsoft/winget-pkgs](https://github.com/microsoft/wing
 | Mistral | Cookies | 账单、用量 |
 | OpenCode Go | Cookies | 用量、Zen 余额 |
 | Kilo | API Key / CLI | 用量 |
+| AWS Bedrock | AWS CLI Profile | 成本 |
 | Codebuff | API Key / 本地配置 | Credits、周用量 |
 | DeepSeek | API Key | 余额、用量摘要、成本 |
 | Windsurf | 本地缓存 | 日用量、周用量 |
